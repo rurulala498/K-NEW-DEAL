@@ -1,0 +1,39 @@
+{
+  "year": 2026,
+  "minimum_hourly_wage": {
+    "value": 10320,
+    "verified": true
+  },
+  "weekly_holiday_min_hours": {
+    "value": 15,
+    "verified": true
+  },
+  "break_time": {
+    "value": [
+      {"work_hours": 4, "break_minutes": 30},
+      {"work_hours": 8, "break_minutes": 60}
+    ],
+    "verified": true
+  },
+  "premium_min_workplace_size": {
+    "value": 5,
+    "verified": true
+  },
+  "night_work_hours": {
+    "value": {"start": "22:00", "end": "06:00"},
+    "verified": false
+  },
+  "premium_rate": {
+    "value": 0.5,
+    "verified": false
+  },
+  "weeks_per_month": {
+    "value": 4.345,
+    "verified": false
+  },
+  "part_time_overtime": {
+    "value": null,
+    "verified": false,
+    "todo": "단시간 근로자의 소정근로시간 초과분에 가산을 적용하는 기준 확인"
+  }
+}

@@ -1,0 +1,222 @@
+{
+  "extraction": {
+    "contract": {
+      "hourly_wage": {
+        "value": 10000,
+        "confidence": "high"
+      },
+      "daily_hours": {
+        "value": 5,
+        "confidence": "high"
+      },
+      "weekly_hours": {
+        "value": 20,
+        "confidence": "high"
+      },
+      "work_days": {
+        "value": [
+          "월",
+          "화",
+          "목",
+          "금"
+        ],
+        "confidence": "high"
+      },
+      "work_start": {
+        "value": "09:00",
+        "confidence": "high"
+      },
+      "work_end": {
+        "value": "14:30",
+        "confidence": "high"
+      },
+      "break_minutes": {
+        "value": 30,
+        "confidence": "high"
+      },
+      "contract_start": {
+        "value": "2026-12-01",
+        "confidence": "high"
+      },
+      "contract_end": {
+        "value": "2026-12-31",
+        "confidence": "high"
+      },
+      "pay_day": {
+        "value": "다음 달 10일",
+        "confidence": "high"
+      },
+      "pay_method": {
+        "value": "계좌이체",
+        "confidence": "high"
+      },
+      "holidays": {
+        "value": "주휴일 일요일",
+        "confidence": "high"
+      },
+      "annual_leave": {
+        "value": "연차유급휴가는 관계 법령에 따름",
+        "confidence": "high"
+      },
+      "workplace": {
+        "value": "가상 예시 사업장",
+        "confidence": "high"
+      },
+      "job_description": {
+        "value": "매장 정리",
+        "confidence": "high"
+      },
+      "special_terms": {
+        "value": [],
+        "confidence": "high"
+      }
+    },
+    "payslip": {
+      "pay_period_start": {
+        "value": "2026-12-01",
+        "confidence": "high"
+      },
+      "pay_period_end": {
+        "value": "2026-12-31",
+        "confidence": "high"
+      },
+      "items": {
+        "value": [
+          {
+            "name": {
+              "value": "기본급",
+              "confidence": "high"
+            },
+            "amount": {
+              "value": 869000,
+              "confidence": "high"
+            },
+            "category": {
+              "value": "base_pay",
+              "confidence": "high"
+            }
+          },
+          {
+            "name": {
+              "value": "주휴수당",
+              "confidence": "high"
+            },
+            "amount": {
+              "value": 0,
+              "confidence": "high"
+            },
+            "category": {
+              "value": "weekly_holiday_pay",
+              "confidence": "high"
+            }
+          }
+        ],
+        "confidence": "high"
+      },
+      "total_paid": {
+        "value": 869000,
+        "confidence": "high"
+      }
+    },
+    "extra_answers": {
+      "workplace_size": {
+        "value": "5_or_more",
+        "confidence": "high"
+      },
+      "pay_period_rule": {
+        "value": "매월 1일~말일",
+        "confidence": "high"
+      }
+    },
+    "user_confirmed": true
+  },
+  "engine": {
+    "checks": [
+      {
+        "item": "최저임금",
+        "status": "needs_review",
+        "description": "계약 시급이 2026년 기준보다 320원 낮아 확인이 필요합니다.",
+        "evidence_ids": []
+      }
+    ],
+    "expected_pay": [
+      {
+        "workplace_size": "5_or_more",
+        "items": [
+          {
+            "item": "기본급",
+            "period": "weekly",
+            "amount": 200000,
+            "formula": "10000 × 20",
+            "applied_condition": "주 소정근로시간 20시간",
+            "standards_year": 2026
+          },
+          {
+            "item": "주휴수당",
+            "period": "weekly",
+            "amount": 40000,
+            "formula": "(20 ÷ 40 × 8) × 10000",
+            "applied_condition": "주 15시간 이상이며 소정근로일 개근을 가정",
+            "standards_year": 2026
+          },
+          {
+            "item": "기본급",
+            "period": "monthly",
+            "amount": 869000,
+            "formula": "200000 × 4.345",
+            "applied_condition": "월 환산 4.345주 적용",
+            "standards_year": 2026
+          },
+          {
+            "item": "주휴수당",
+            "period": "monthly",
+            "amount": 173800,
+            "formula": "40000 × 4.345",
+            "applied_condition": "월 환산 4.345주 적용",
+            "standards_year": 2026
+          },
+          {
+            "item": "합계",
+            "period": "monthly",
+            "amount": 1042800,
+            "formula": "(200000 + 40000) × 4.345",
+            "applied_condition": "월 환산 4.345주 적용",
+            "standards_year": 2026
+          }
+        ]
+      }
+    ],
+    "comparison": [
+      {
+        "item": "기본급",
+        "expected": 869000,
+        "actual": 869000,
+        "difference": 0,
+        "status": "ok",
+        "workplace_size": "5_or_more"
+      },
+      {
+        "item": "주휴수당",
+        "expected": 173800,
+        "actual": 0,
+        "difference": 173800,
+        "status": "needs_review",
+        "workplace_size": "5_or_more"
+      },
+      {
+        "item": "합계",
+        "expected": 1042800,
+        "actual": 869000,
+        "difference": 173800,
+        "status": "needs_review",
+        "workplace_size": "5_or_more"
+      }
+    ],
+    "limitations": [
+      {
+        "item": "연장근로 가산",
+        "reason": "단시간 근로자 연장근로 기준 확인 필요"
+      }
+    ]
+  }
+}
