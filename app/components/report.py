@@ -11,14 +11,14 @@ from app.format import (
 from rag.basis_map import pay_basis_keys
 from rag.store import RagStore
 from schemas import EngineResult, ExtractionResult
-from schemas.engine import ComparisonItem
+from schemas.engine import ComparisonItem, ExpectedPayScenario
 
 
 def status_badge(text: str, status: str):
     st.html(f'<span class="status status-{status}">{escape(text)}</span>')
 
 
-def summary_band(result: EngineResult, items: list[ReviewItem], actual):
+def summary_band(result: EngineResult, items: list[ReviewItem], actual, *, payslip_provided: bool):
     totals = [total for scenario in result.expected_pay if (total := monthly_total(scenario)) is not None]
     shortage = [
         row.difference for row in result.comparison
@@ -31,7 +31,16 @@ def summary_band(result: EngineResult, items: list[ReviewItem], actual):
     with st.container(key="summary-band"):
         narrative, metrics = st.columns([6, 6], vertical_alignment="center", gap="medium")
         with narrative:
-            if items:
+            if not payslip_provided:
+                if items:
+                    status_badge(f"확인 필요 {len(items)}건", "review")
+                elif result.checks:
+                    status_badge("기준에 맞아요", "ok")
+                if totals:
+                    st.header(f"계약대로라면 매달 약 {amount_range(totals)}을 받아요")
+                else:
+                    st.header("예상 급여를 계산하려면 계약 내용을 더 확인해 주세요")
+            elif items:
                 status_badge(f"확인 필요 {len(items)}건", "review")
                 lead_in = "가산수당이 적용되면 " if len(result.expected_pay) > 1 else ""
                 st.header(f"{lead_in}{amount_range(shortage)} 덜 받았을 수 있어요" if shortage
@@ -51,7 +60,7 @@ def summary_band(result: EngineResult, items: list[ReviewItem], actual):
         with metrics:
             expected_box, actual_box, terms_box = st.columns(3, gap="small")
             expected_box.metric("받을 금액", amount_range(totals))
-            actual_box.metric("받은 금액", won(actual))
+            actual_box.metric("받은 금액", won(actual) if payslip_provided else "비교 안 함")
             passed = sum(check.status == "ok" for check in result.checks)
             terms_box.metric("계약서 점검", f"{passed} / {len(result.checks)} 충족")
 
@@ -115,6 +124,28 @@ def pay_comparison(rows: list[ComparisonItem], premium_is_zero: bool, store: Rag
         for item in dict.fromkeys(row.item for row in visible):
             st.markdown(f"**{item}**")
             evidence_chips(store, pay_basis_keys(item), item)
+
+
+def expected_pay_receipt(scenario: ExpectedPayScenario, store: RagStore):
+    rows = [row for row in scenario.items if row.period == "monthly"]
+    if not rows:
+        st.caption("표에 표시할 받을 금액이 없어요.")
+        return
+
+    entries = [
+        f'<tr><th scope="row">{escape(row.item)}</th><td>{won(row.amount)}</td>'
+        f'<td>{escape(row.formula)}</td></tr>'
+        for row in rows
+    ]
+    st.html(
+        '<table class="pay-table"><thead><tr><th scope="col">항목</th>'
+        '<th scope="col">받을 금액</th><th scope="col">계산식</th></tr></thead>'
+        f'<tbody>{"".join(entries)}</tbody></table>'
+    )
+    with st.expander("급여 항목별 근거 보기"):
+        for row in rows:
+            st.markdown(f"**{row.item}**")
+            evidence_chips(store, pay_basis_keys(row.item), row.item)
 
 
 def review_cards(items: list[ReviewItem], store: RagStore):

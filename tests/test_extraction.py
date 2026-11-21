@@ -246,3 +246,26 @@ def test_live_extraction_on_synthetic_documents(case):
     assert not outcome.validation_failed
     assert outcome.result.contract.hourly_wage.value is not None
     assert outcome.usage
+
+
+@pytest.mark.parametrize("valid_reply", [True, False])
+def test_contract_only_sends_no_payslip_and_discards_unsolicited_payslip_values(valid_reply):
+    class ContractClient:
+        def __init__(self):
+            self.calls = 0
+
+        def read(self, prompt, documents, schema):
+            self.calls += 1
+            assert "급여명세서 없음" in prompt
+            assert json.loads(documents) == {"contract": TEXTS.contract}
+            return ModelReply(response_payload() if valid_reply else {})
+
+    client = ContractClient()
+    outcome = extract_documents(DocumentTexts(TEXTS.contract), SETTINGS, client=client)
+
+    assert client.calls == (1 if valid_reply else 2)
+    assert outcome.validation_failed is not valid_reply
+    assert outcome.result.documents_provided.model_dump() == {"contract": True, "payslip": False}
+    assert outcome.result.contract.hourly_wage.value == (10500 if valid_reply else None)
+    assert all(field["value"] is None and field["source_text"] is None and field["confidence"] == "low"
+               for field in outcome.result.payslip.model_dump().values())

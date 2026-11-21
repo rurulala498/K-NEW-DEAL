@@ -33,7 +33,7 @@ class ComparisonItem(BaseModel):
     expected: Amount | None
     actual: Amount | None
     difference: Amount | None = Field(description="예상 지급액에서 실제 지급액을 뺀 금액")
-    status: ResultStatus
+    status: Literal["ok", "needs_review", "not_compared"]
     workplace_size: KnownWorkplaceSize | None = None
 
 

@@ -1,4 +1,5 @@
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import streamlit as st
@@ -13,6 +14,7 @@ from app.steps.result import show_result
 from app.steps.review import review_step
 from app.steps.upload import upload_step
 from engine import run_engine
+from llm.documents import DocumentTexts
 from rag.store import default_store
 
 STYLE = Path(__file__).with_name("style.css")
@@ -28,8 +30,16 @@ def main():
         reset_scroll()
 
     if step == 1:
-        draft = upload_step()
+        adding_payslip = st.session_state.get("adding_payslip", False)
+        draft = upload_step(adding_payslip=adding_payslip)
         if draft:
+            if adding_payslip:
+                saved = st.session_state.confirmed.model_dump(mode="json", include={"contract", "extra_answers"})
+                draft = replace(
+                    draft,
+                    extraction={**draft.extraction, **saved, "documents_provided": {"contract": True, "payslip": True}},
+                    texts=DocumentTexts(st.session_state.get("contract_text"), draft.texts.payslip),
+                )
             st.session_state.pop("extraction_error", None)
             st.session_state.update(step=2, draft=draft, scroll_on_show=True)
             st.rerun()
@@ -44,10 +54,17 @@ def main():
         confirmed = review_step(draft.sample_name, draft.extraction, texts=draft.texts)
         if confirmed is not None:
             st.session_state.pop("draft", None)
+            st.session_state.pop("adding_payslip", None)
+            if not confirmed.documents_provided.payslip and draft.texts is not None:
+                st.session_state.contract_text = draft.texts.contract
+            else:
+                st.session_state.pop("contract_text", None)
             st.session_state.update(step=3, confirmed=confirmed, result=run_engine(confirmed), scroll_on_show=True)
             st.rerun()
     else:
-        show_result(st.session_state.result, st.session_state.confirmed, store)
+        if show_result(st.session_state.result, st.session_state.confirmed, store):
+            st.session_state.update(step=1, adding_payslip=True, scroll_on_show=True)
+            st.rerun()
 
     footer()
 

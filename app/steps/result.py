@@ -3,7 +3,8 @@ import streamlit as st
 from app.components.evidence import evidence_chips
 from app.components.help_panel import help_panel
 from app.components.report import (
-    pay_comparison, required_term_grid, review_cards, scenario_comparison, summary_band,
+    expected_pay_receipt, pay_comparison, required_term_grid, review_cards,
+    scenario_comparison, status_badge, summary_band,
 )
 from app.format import PREMIUMS, WORKPLACE_LABELS, conversational, review_items
 from rag.basis_map import check_basis_keys, pay_basis_keys
@@ -25,6 +26,22 @@ def _comparison_section(result: EngineResult, store: RagStore):
         premium_is_zero = len(premiums) == len(PREMIUMS) and all(line.amount == 0 for line in premiums)
         with tab:
             pay_comparison(rows, premium_is_zero, store)
+
+
+def _expected_section(result: EngineResult, store: RagStore) -> bool:
+    st.subheader("받을 금액 명세")
+    status_badge("비교 안 함", "missing")
+    st.caption("세전 기준이에요.")
+    scenarios = result.expected_pay
+    if len(scenarios) > 1:
+        tabs = st.tabs([WORKPLACE_LABELS[scenario.workplace_size] for scenario in scenarios])
+        for tab, scenario in zip(tabs, scenarios):
+            with tab:
+                expected_pay_receipt(scenario, store)
+    elif scenarios:
+        expected_pay_receipt(scenarios[0], store)
+    st.caption("급여명세서를 올리면 실제 받은 금액과 비교할 수 있어요")
+    return st.button("급여명세서 추가하기", key="add-payslip")
 
 
 def _standards(result: EngineResult, store: RagStore):
@@ -50,19 +67,24 @@ def _standards(result: EngineResult, store: RagStore):
                     evidence_chips(store, pay_basis_keys(row.item), row.item)
 
 
-def show_result(result: EngineResult, extraction: ExtractionResult, store: RagStore):
+def show_result(result: EngineResult, extraction: ExtractionResult, store: RagStore) -> bool:
     st.title("내 급여 영수증")
     items = review_items(result, extraction)
-    actual = extraction.payslip.total_paid.value
-    if actual is None:
+    payslip_provided = extraction.documents_provided.payslip
+    actual = extraction.payslip.total_paid.value if payslip_provided else None
+    if payslip_provided and actual is None:
         actual = next((row.actual for row in result.comparison if row.item == "합계" and row.actual is not None), None)
-    summary_band(result, items, actual)
+    summary_band(result, items, actual, payslip_provided=payslip_provided)
+    add_payslip = False
 
     with st.container(key="report-split"):
         report, support = st.columns([8, 4], gap="large", vertical_alignment="top")
         with report:
             with st.container(border=True, key="pay-card"):
-                _comparison_section(result, store)
+                if payslip_provided:
+                    _comparison_section(result, store)
+                else:
+                    add_payslip = _expected_section(result, store)
             review_cards(items, store)
             with st.container(border=True, key="terms-card"):
                 st.subheader("계약서 필수 기재사항")
@@ -81,3 +103,4 @@ def show_result(result: EngineResult, extraction: ExtractionResult, store: RagSt
             _standards(result, store)
         with support:
             help_panel(result, items, store)
+    return add_payslip

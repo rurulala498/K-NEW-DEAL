@@ -41,7 +41,8 @@ def run_engine(extraction: ExtractionResult, year: int = 2026) -> EngineResult:
         for scenario_size in sizes
     ]
     comparison = compare_pay(
-        expected_pay, extraction.payslip, standards["comparison_tolerance_won"]["value"], limitations,
+        expected_pay, extraction.payslip if extraction.documents_provided.payslip else None,
+        standards["comparison_tolerance_won"]["value"], limitations,
     )
     unique_limitations = list({(row.item, row.reason): row for row in limitations}.values())
     return EngineResult(

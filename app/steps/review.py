@@ -9,6 +9,7 @@ from app.format import WORKPLACE_LABELS
 from engine.comparison import PAYSLIP_CATEGORIES
 from llm.documents import DocumentTexts
 from schemas import ExtractionResult
+from schemas.extraction import DocumentsProvided
 
 CORE_FIELDS = {
     "hourly_wage": "시급 (원)", "weekly_hours": "주 소정근로시간",
@@ -61,17 +62,18 @@ def _core_inputs(contract):
 
 def _additional_fields(contract, payslip):
     contract_priority = _priority_labels(contract, OTHER_FIELDS)
-    payslip_priority = _priority_labels(payslip, PAYSLIP_FIELDS)
+    payslip_priority = _priority_labels(payslip, PAYSLIP_FIELDS) if payslip is not None else {}
     terms = contract["special_terms"]
-    items = payslip["items"]
+    items = payslip["items"] if payslip is not None else None
     term_fixes, item_fixes = {}, {}
     contract_result, payslip_result = {}, {}
-    if contract_priority or payslip_priority or _has_low_rows(terms) or _has_low_rows(items):
+    if contract_priority or payslip_priority or _has_low_rows(terms) or (items and _has_low_rows(items)):
         st.markdown("**신뢰도가 낮은 값도 먼저 확인해요**")
         contract_result.update(text_fields(contract, contract_priority, "review-contract"))
-        payslip_result.update(text_fields(payslip, payslip_priority, "review-payslip"))
         term_fixes = low_rows(terms, TERM_FIELDS, "특약", TERM_CHOICES)
-        item_fixes = low_rows(items, ITEM_FIELDS, "급여 항목", ITEM_CHOICES)
+        if payslip is not None:
+            payslip_result.update(text_fields(payslip, payslip_priority, "review-payslip"))
+            item_fixes = low_rows(items, ITEM_FIELDS, "급여 항목", ITEM_CHOICES)
 
     with st.expander("전체 항목 보기"):
         st.markdown("**계약서 세부 항목**")
@@ -83,15 +85,16 @@ def _additional_fields(contract, payslip):
         contract_result["special_terms"] = editable_rows(
             terms, TERM_FIELDS, "review-terms", choices=TERM_CHOICES, corrected=term_fixes,
         )
-        st.markdown("**명세서 세부 항목**")
-        payslip_result.update(text_fields(
-            payslip, {name: label for name, label in PAYSLIP_FIELDS.items() if name not in payslip_priority},
-            "review-payslip",
-        ))
-        st.markdown("**급여 항목**")
-        payslip_result["items"] = editable_rows(
-            items, ITEM_FIELDS, "review-items", choices=ITEM_CHOICES, corrected=item_fixes,
-        )
+        if payslip is not None:
+            st.markdown("**명세서 세부 항목**")
+            payslip_result.update(text_fields(
+                payslip, {name: label for name, label in PAYSLIP_FIELDS.items() if name not in payslip_priority},
+                "review-payslip",
+            ))
+            st.markdown("**급여 항목**")
+            payslip_result["items"] = editable_rows(
+                items, ITEM_FIELDS, "review-items", choices=ITEM_CHOICES, corrected=item_fixes,
+            )
     return contract_result, payslip_result
 
 
@@ -129,25 +132,32 @@ def _invalid_input(error: ValidationError):
 
 
 def review_step(sample_name: str | None, sample: dict, *, texts: DocumentTexts | None = None) -> ExtractionResult | None:
+    provided = DocumentsProvided.model_validate(sample.get("documents_provided", {}))
     st.title("서류 내용을 확인해요")
     st.caption("원본과 추출값을 비교하고, 다른 값은 직접 고쳐 주세요.")
+    if not provided.payslip:
+        st.caption("급여명세서 없이 진행 중")
     with st.container(key="review-split"):
         document, editor = st.columns([5, 7], gap="large", vertical_alignment="top")
         with document:
             with st.container(border=True, key="documents-card"):
-                document_preview(sample_name, sample, texts)
+                document_preview(sample_name, sample, texts, payslip_provided=provided.payslip)
         with editor:
             with st.form("review-form", border=True):
                 st.subheader("추출값 확인")
                 contract = _core_inputs(sample["contract"])
-                remaining, payslip = _additional_fields(sample["contract"], sample["payslip"])
+                remaining, payslip = _additional_fields(
+                    sample["contract"], sample["payslip"] if provided.payslip else None,
+                )
                 extra_answers = _answers(sample["extra_answers"])
                 submitted = st.form_submit_button("결과 보기", type="primary", width="stretch")
                 if submitted:
                     try:
                         return ExtractionResult.model_validate({
-                            "contract": {**contract, **remaining}, "payslip": payslip,
+                            "contract": {**contract, **remaining},
+                            "payslip": payslip if provided.payslip else sample["payslip"],
                             "extra_answers": extra_answers, "user_confirmed": True,
+                            "documents_provided": provided,
                         })
                     except ValidationError as error:
                         _invalid_input(error)

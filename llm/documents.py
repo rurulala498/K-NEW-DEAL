@@ -16,8 +16,8 @@ class DocumentReadError(Exception):
 
 
 class DocumentTexts(NamedTuple):
-    contract: str
-    payslip: str
+    contract: str | None
+    payslip: str | None = None
 
 
 def _word_text(data: bytes) -> str:

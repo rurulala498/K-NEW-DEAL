@@ -57,24 +57,32 @@ def _paid_by_item(payslip: Payslip, limitations: list[Limitation]) -> dict[str, 
 
 
 def compare_pay(
-    scenarios: list[ExpectedPayScenario], payslip: Payslip, tolerance: Decimal,
+    scenarios: list[ExpectedPayScenario], payslip: Payslip | None, tolerance: Decimal,
     limitations: list[Limitation],
 ) -> list[ComparisonItem]:
-    paid = _paid_by_item(payslip, limitations)
+    paid = _paid_by_item(payslip, limitations) if payslip is not None else {}
+    if payslip is None:
+        limitations.append(Limitation(
+            item="지급액 대조", reason="급여명세서를 올리지 않아 실제 지급액과 비교하지 않았습니다.",
+        ))
+
     comparison = []
     for scenario in scenarios:
         for row in scenario.items:
             if row.period != "monthly":
                 continue
             actual = paid.get(row.item)
-            if actual is None and row.amount == ZERO:
-                continue
-            if actual is None:
-                limitations.append(Limitation(
-                    item=row.item, reason="급여명세서에서 해당 지급액을 확인할 수 없습니다.",
-                ))
             difference = None if actual is None else row.amount - actual
-            status = "needs_review" if difference is None or difference > tolerance else "ok"
+            if payslip is None:
+                status = "not_compared"
+            else:
+                if actual is None and row.amount == ZERO:
+                    continue
+                if actual is None:
+                    limitations.append(Limitation(
+                        item=row.item, reason="급여명세서에서 해당 지급액을 확인할 수 없습니다.",
+                    ))
+                status = "needs_review" if difference is None or difference > tolerance else "ok"
             comparison.append(ComparisonItem(
                 item=row.item,
                 expected=row.amount,

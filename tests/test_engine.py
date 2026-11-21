@@ -209,3 +209,41 @@ def test_missing_standards_year_returns_limitation():
 
     assert not result.expected_pay
     assert result.limitations[0].reason == "등록되지 않은 기준 연도"
+
+
+@pytest.mark.parametrize("size", ["5_or_more", "unknown"])
+def test_contract_only_keeps_checks_and_pay_without_flagging_comparison(size):
+    data = load_extraction("review_case")
+    data["extra_answers"]["workplace_size"]["value"] = size
+    baseline = run(data)
+    data["documents_provided"] = {"contract": True, "payslip": False}
+    result = run(data)
+
+    assert result.checks == baseline.checks
+    assert result.expected_pay == baseline.expected_pay
+    assert [
+        (row.workplace_size, row.item, row.expected) for row in result.comparison
+    ] == [
+        (scenario.workplace_size, row.item, row.amount)
+        for scenario in result.expected_pay for row in scenario.items if row.period == "monthly"
+    ]
+    assert all(row.status == "not_compared" and row.actual is None and row.difference is None
+               for row in result.comparison)
+    assert sum(row.status == "needs_review" for row in result.checks + result.comparison) == sum(
+        row.status == "needs_review" for row in baseline.checks
+    )
+    assert [row.reason for row in result.limitations if row.item == "지급액 대조"] == [
+        "급여명세서를 올리지 않아 실제 지급액과 비교하지 않았습니다.",
+    ]
+
+
+def test_submitted_payslip_without_values_still_requires_review():
+    data = load_extraction()
+    for field in data["payslip"].values():
+        field["value"] = None
+
+    extraction = ExtractionResult.model_validate(data)
+    assert extraction.documents_provided.contract and extraction.documents_provided.payslip
+    result = run_engine(extraction)
+    assert result.comparison and all(row.status == "needs_review" for row in result.comparison)
+    assert any("해당 지급액을 확인할 수 없습니다" in row.reason for row in result.limitations)

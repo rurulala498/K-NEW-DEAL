@@ -14,7 +14,7 @@ from engine.comparison import PAYSLIP_CATEGORIES, PAYSLIP_NAMES
 from llm.client import ApiSettings, ExtractionClient, TokenUsage
 from llm.documents import DocumentTexts
 from llm.samples import sample_texts
-from schemas.extraction import Contract, ExtractionResult, ExtractedField, Payslip
+from schemas.extraction import Contract, DocumentsProvided, ExtractionResult, ExtractedField, Payslip
 
 PROMPT_VERSION = "v1"
 PROMPT_DIR = Path(__file__).with_name("prompts")
@@ -41,12 +41,13 @@ def _unanswered() -> dict:
     }
 
 
-def blank_result() -> ExtractionResult:
+def blank_result(documents_provided: DocumentsProvided | None = None) -> ExtractionResult:
     return ExtractionResult.model_validate({
         "contract": {name: {"value": None, "confidence": "low"} for name in Contract.model_fields},
         "payslip": {name: {"value": None, "confidence": "low"} for name in Payslip.model_fields},
         "extra_answers": _unanswered(),
         "user_confirmed": False,
+        "documents_provided": documents_provided or DocumentsProvided(),
     })
 
 
@@ -118,9 +119,17 @@ def extract_documents(
     client: ExtractionClient | None = None,
     prompt_version: str = PROMPT_VERSION,
 ) -> ExtractionOutcome:
-    """Extract one pair of documents without retaining or caching the inputs."""
+    """Extract the supplied documents without retaining or caching the inputs."""
     prompt = (PROMPT_DIR / f"extraction_{prompt_version}.txt").read_text(encoding="utf-8")
-    payload = json.dumps(texts._asdict(), ensure_ascii=False)
+    if texts.payslip is None:
+        prompt += "\n급여명세서 없음. payslip의 모든 필드는 value와 source_text를 null로, confidence를 low로 둔다."
+    if texts.contract is None:
+        prompt += "\n근로계약서 없음. contract의 모든 필드는 value와 source_text를 null로, confidence를 low로 둔다."
+
+    documents = {name: text for name, text in texts._asdict().items() if text is not None}
+    payload = json.dumps(documents, ensure_ascii=False)
+    provided = DocumentsProvided(contract="contract" in documents, payslip="payslip" in documents)
+    result = blank_result(provided)
     active_client = client if client is not None else ExtractionClient(settings)
     all_usage = []
     for attempt in range(2):
@@ -134,15 +143,16 @@ def extract_documents(
             fields = _validated_reply(reply.payload)
         except ValidationError:
             continue
-        _audit_fields(fields.contract, texts.contract)
-        _audit_fields(fields.payslip, texts.payslip)
-        _audit_terms(fields.contract, texts.contract)
-        _audit_categories(fields.payslip)
-        result = ExtractionResult.model_validate({
-            **fields.model_dump(), "extra_answers": _unanswered(), "user_confirmed": False,
-        })
+        if texts.contract is not None:
+            _audit_fields(fields.contract, texts.contract)
+            _audit_terms(fields.contract, texts.contract)
+            result.contract = fields.contract
+        if texts.payslip is not None:
+            _audit_fields(fields.payslip, texts.payslip)
+            _audit_categories(fields.payslip)
+            result.payslip = fields.payslip
         return ExtractionOutcome(result, tuple(all_usage))
-    return ExtractionOutcome(blank_result(), tuple(all_usage), validation_failed=True)
+    return ExtractionOutcome(result, tuple(all_usage), validation_failed=True)
 
 
 _SAMPLE_CACHE_LIMIT = 8

@@ -63,8 +63,14 @@ class ExtraAnswers(BaseModel):
     pay_period_rule: ExtractedField[Text]
 
 
+class DocumentsProvided(BaseModel):
+    contract: StrictBool = True
+    payslip: StrictBool = True
+
+
 class ExtractionResult(BaseModel):
     contract: Contract
     payslip: Payslip
     extra_answers: ExtraAnswers
     user_confirmed: StrictBool
+    documents_provided: DocumentsProvided = Field(default_factory=DocumentsProvided)
