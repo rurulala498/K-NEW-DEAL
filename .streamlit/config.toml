@@ -1,10 +1,10 @@
 [theme]
 base = "light"
-primaryColor = "#214FC5"
-backgroundColor = "#F4F6FA"
+primaryColor = "#2350B8"
+backgroundColor = "#F6F7F9"
 secondaryBackgroundColor = "#FFFFFF"
-textColor = "#17233B"
-borderColor = "#DCE3EE"
+textColor = "#141C2B"
+borderColor = "#E6E9EF"
 font = "Pretendard, sans-serif"
 
 [[theme.fontFaces]]

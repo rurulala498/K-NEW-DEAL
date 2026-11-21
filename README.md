@@ -51,6 +51,18 @@ Streamlit Community Cloud에서는 앱 설정의 **Secrets**에 같은 환경 �
 
 받았수당은 법률 자문 서비스가 아닙니다. 최종 판단은 관계 기관에서 이루어집니다.
 
+<a name="privacy"></a>
+## 개인정보 처리 안내
+
+서류는 앱의 세션 메모리에서 처리하며 디스크에 저장하지 않습니다. AI 추출에는 서류의 텍스트가 전송되고, 설명과 챗봇에는 필요한 확인값과 엔진 결과가 OpenAI API로 전달됩니다. 업로드 전 주민등록번호와 계좌번호를 가리고 질문에는 개인정보를 적지 마세요.
+
+<a name="sources"></a>
+## 출처·라이선스
+
+법령과 용어의 출처 및 확인일은 결과의 각 근거에서 확인할 수 있습니다. [국가법령정보센터](https://www.law.go.kr/) · [RAG 데이터 작성 안내](docs/rag_data_guide.md)
+
+화면의 Pretendard 글꼴은 SIL Open Font License 1.1을 따릅니다. [Pretendard 라이선스](https://github.com/orioncactus/pretendard/blob/v1.3.9/LICENSE)
+
 ## 테스트와 평가
 
 ```powershell

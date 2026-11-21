@@ -20,10 +20,11 @@ from llm.samples import sample_texts
 from rag.store import default_store
 
 STYLE = Path(__file__).with_name("style.css")
+FAVICON = Path(__file__).with_name("assets") / "favicon.png"
 
 
 def main():
-    st.set_page_config(page_title="받았수당 · 내 급여 영수증", layout="wide")
+    st.set_page_config(page_title="받았수당 · 내 급여 영수증", page_icon=str(FAVICON), layout="wide")
     st.html(STYLE)
     store = default_store()
     step = st.session_state.get("step", 1)
@@ -79,7 +80,7 @@ def main():
             st.session_state.update(step=2, draft=draft, scroll_on_show=True)
             st.rerun()
 
-    footer()
+    footer(step)
 
 
 if __name__ == "__main__":
