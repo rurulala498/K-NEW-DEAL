@@ -160,10 +160,3 @@ def help_channel_links(store: RagStore):
             f'<p>{escape(channel.what_for)}</p><p>{escape(channel.contact)}</p>'
             f'{_source(channel.url, channel.checked_date)}</article>'
         )
-
-
-def help_channels(store: RagStore):
-    if store.help_channels:
-        with st.container(border=True, key="official-help-panel"):
-            st.subheader("더 확인하고 싶다면")
-            help_channel_links(store)

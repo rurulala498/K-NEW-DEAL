@@ -208,12 +208,13 @@ def test_app_renders_ai_reuses_session_cache_and_rewrites_only_messages(monkeypa
 
     assert not app.exception
     assert len(fake.calls) == 1 and fake.calls[0][2] is Explanation
-    assert any("207,170원 차이를 확인해 볼 수 있어요" in row.value for row in app.header)
+    assert any("207,170원" in row.proto.body and "차이를 확인해 볼 수 있어요" in row.proto.body
+               and 'class="report-summary-title"' in row.proto.body for row in app.get("html"))
     assert any("AI가 작성한 설명이에요" in row.value for row in app.caption)
     assert any("요약의 금액은 원인별, 표의 금액은 항목별" in row.value for row in app.caption)
     app.run()
     assert len(fake.calls) == 1
-    summary_before = app.header[0].value
+    summary_before = next(row.proto.body for row in app.get("html") if 'class="report-summary-title"' in row.proto.body)
     widget = next(field for field in app.text_input if field.label == "다시 쓰기 요청")
     widget.set_value("카톡으로 짧게, 홍길동 01012349876")
     app.button(key="rewrite-employer-messages").click().run()
@@ -222,10 +223,12 @@ def test_app_renders_ai_reuses_session_cache_and_rewrites_only_messages(monkeypa
     assert "홍길동" not in json.dumps(fake.calls[1][1], ensure_ascii=False)
     assert fake.calls[1][1]["style_hints"] == ["메신저로 보낼 수 있게", "짧고 간결하게"]
     assert "summary" not in fake.calls[1][1] and "special_terms" not in fake.calls[1][1]["confirmed"]
-    assert app.header[0].value == summary_before
+    assert any(row.proto.body == summary_before for row in app.get("html"))
     assert app.text_area[0].value == draft["employer_question"]
     app.text_area[0].set_value("사장님, 제가 직접 고쳤습니다.").run()
-    assert app.code[0].value == "사장님, 제가 직접 고쳤습니다."
+    assert app.text_area[0].value == "사장님, 제가 직접 고쳤습니다."
+    assert any('data-copy-editor="st-key-employer-question-editor"' in row.proto.body for row in app.get("html"))
+    assert not any("제가 직접 고쳤습니다." in row.proto.body for row in app.get("html"))
     assert len(fake.calls) == 2
 
 
@@ -249,7 +252,7 @@ def test_sample_flow_and_message_rewrites_do_not_call_the_api(monkeypatch):
     app.button(key="consent").click().run()
     app.button(key="sample-review_case").click().run()
     next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
-    tone = next(field for field in app.selectbox if field.label == "말투")
+    tone = next(field for field in app.segmented_control if field.label == "말투")
     tone.set_value("간단하게")
     app.button(key="rewrite-employer-messages").click().run()
 

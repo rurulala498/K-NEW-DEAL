@@ -159,7 +159,7 @@ def test_article_markup_preserves_newlines_and_displays_both_wage_sources():
     assert "2026-01-01" in html
 
 
-def test_empty_data_renders_preparation_chips_and_hides_help(monkeypatch):
+def test_empty_data_renders_preparation_chips_and_generic_help(monkeypatch):
     app = review_app(monkeypatch, rag.RagStore())
     content = "\n".join(element.proto.body for element in app.get("html"))
 
@@ -168,7 +168,8 @@ def test_empty_data_renders_preparation_chips_and_hides_help(monkeypatch):
     assert "<summary>주휴수당 뜻 보기</summary>" in content
     assert "<summary>최저임금 뜻 보기</summary>" in content
     assert "<summary>휴게시간 뜻 보기</summary>" in content
-    assert not any(heading.value == "더 확인하고 싶다면" for heading in app.subheader)
+    assert any(heading.value == "더 확인하고 싶다면" for heading in app.subheader)
+    assert any(note.value == "공식 상담 기관에 확인해 보세요." for note in app.caption)
 
 
 def test_card_terms_follow_basis_and_put_the_card_name_first():

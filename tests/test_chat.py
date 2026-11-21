@@ -405,6 +405,7 @@ def test_app_sample_chat_shows_real_response_and_sources_with_fake_api(monkeypat
     assert len([button for button in app.button if (button.key or "").startswith("chat-prompt-")]) == 3
     app.button(key="chat-prompt-0").click().run()
     assert not app.exception and len(fake.calls) == 1
+    assert any(row.value == "질문 19회 남음" for row in app.caption)
     assert any(row.value == text for row in app.text)
     assert any(row.value == "AI가 작성한 답변이에요" for row in app.caption)
     law = default_store().get_law("weekly_holiday_pay")

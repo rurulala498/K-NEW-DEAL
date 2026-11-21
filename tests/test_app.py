@@ -47,14 +47,16 @@ def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, n
 
     assert not app.exception
     assert app.metric[0].value == monthly_total
-    assert any(row.label == "상세 영수증 보기" for row in app.expander)
+    assert any(row.label == "항목별 근거·금액 그래프 보기" for row in app.expander)
     assert any(row.value == "사장님께 보낼 문구" for row in app.subheader) is needs_review
     receipt = next(row.proto.body for row in app.get("html") if '<table class="pay-table">' in row.proto.body)
     assert ('<th scope="col">최저임금 기준</th>' in receipt) is needs_review
     if needs_review:
-        assert any(row.value == "최저임금 기준으로 계산하면 207,170원 덜 받았을 수 있어요" for row in app.header)
-        assert any("주휴수당 미지급 173,800원" in row.value and "최저임금 차이 33,370원" in row.value
-                   for row in app.markdown)
+        title = next(row.proto.body for row in app.get("html") if 'class="report-summary-title"' in row.proto.body)
+        assert "최저임금 기준으로 계산하면" in title and "headline-amount" in title and "207,170원" in title
+        reason = next(row.proto.body for row in app.get("html") if 'class="report-summary-reason"' in row.proto.body)
+        assert all(value in reason for value in ("주휴수당 미지급", "173,800원", "최저임금 차이", "33,370원"))
+        assert "pay-row-diff" in receipt and '<summary>계산식</summary>' in receipt
         assert any(row.value == "계약대로 1,042,800원 · 최저임금 기준 1,076,170원" for row in app.caption)
         assert all(amount in receipt for amount in ("1,042,800원", "1,076,170원", "869,000원", "207,170원"))
         assert any('class="contract-label">계약 시급 기준' in row.proto.body
@@ -105,7 +107,8 @@ def test_contract_only_receipt_shows_both_wage_bases_without_payment_columns():
 
     assert not app.exception
     assert [metric.value for metric in app.metric[:2]] == ["1,076,170원", "비교 안 함"]
-    assert any(row.value == "최저임금 기준으로 계산하면 매달 약 1,076,170원을 받아요" for row in app.header)
+    assert any("최저임금 기준으로 계산하면 매달 약" in row.proto.body and "1,076,170원" in row.proto.body
+               and "headline-amount" not in row.proto.body for row in app.get("html"))
     receipt = next(row.proto.body for row in app.get("html") if 'class="pay-table has-wage-bases"' in row.proto.body)
     assert all(label in receipt for label in ("계약 시급 기준", "최저임금 기준", "1,042,800원", "1,076,170원"))
     assert "받은 금액</th>" not in receipt

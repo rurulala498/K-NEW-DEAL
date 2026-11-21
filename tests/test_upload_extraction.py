@@ -183,10 +183,11 @@ def test_contract_only_can_add_payslip_without_replacing_confirmed_contract(monk
 
     assert not app.exception
     assert [metric.value for metric in app.metric] == ["1,105,368원", "비교 안 함", "4 / 4 충족"]
-    assert any("계약대로라면 매달 약 1,105,368원을 받아요" in row.value for row in app.header)
+    assert any('class="report-summary-title"' in row.proto.body and "계약대로라면 매달 약" in row.proto.body
+               and "1,105,368원" in row.proto.body for row in app.get("html"))
     assert any('class="status status-missing">비교 안 함' in row.proto.body for row in app.get("html"))
     assert any("급여명세서를 올리면 실제 받은 금액과 비교할 수 있어요" in note.value for note in app.caption)
-    assert not any(row.value in ("확인할 항목", "사장님께 보낼 문구") for row in app.subheader)
+    assert not any(row.value in ("확인이 필요한 항목", "사장님께 보낼 문구") for row in app.subheader)
     assert requests == [{"contract"}]
 
     saved = app.session_state.confirmed
