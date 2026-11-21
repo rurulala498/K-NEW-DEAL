@@ -249,3 +249,13 @@ html, body, [data-testid="stAppViewContainer"] {
   font: inherit;
   line-height: 1.65;
 }
+
+.evidence-chips { display: block; }
+.evidence-chips > * + * { margin-top: 0.35rem; }
+.rag-detail { padding: 0.45rem 0 0.2rem; }
+.rag-article + .rag-article,
+.rag-help + .rag-help { border-top: 1px solid var(--line); margin-top: 0.7rem; padding-top: 0.45rem; }
+.rag-article h4, .rag-help h4 { font-size: 0.95rem; margin: 0 0 0.3rem; }
+.rag-original { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 0.86rem; line-height: 1.65; padding: 0.6rem 0; margin: 0; }
+.rag-source, .rag-pending { font-size: 0.78rem; color: var(--muted); }
+.st-key-official-help-panel { background: var(--paper); border-color: var(--line); border-radius: 1rem; }

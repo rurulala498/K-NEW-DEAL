@@ -13,6 +13,7 @@ from app.steps.result import show_result
 from app.steps.review import review_step
 from app.steps.upload import upload_step
 from engine import run_engine
+from rag.store import default_store
 
 STYLE = Path(__file__).with_name("style.css")
 
@@ -20,6 +21,7 @@ STYLE = Path(__file__).with_name("style.css")
 def main():
     st.set_page_config(page_title="받았수당 · 내 급여 영수증", layout="wide")
     st.html(STYLE)
+    store = default_store()
     step = st.session_state.get("step", 1)
     top_bar(step)
     if st.session_state.pop("scroll_on_show", False):
@@ -45,7 +47,7 @@ def main():
             st.session_state.update(step=3, confirmed=confirmed, result=run_engine(confirmed), scroll_on_show=True)
             st.rerun()
     else:
-        show_result(st.session_state.result, st.session_state.confirmed)
+        show_result(st.session_state.result, st.session_state.confirmed, store)
 
     footer()
 

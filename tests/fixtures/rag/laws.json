@@ -1,0 +1,47 @@
+[
+  {
+    "basis_key": "minimum_wage",
+    "law_name": "테스트용 가상 자료",
+    "article_no": "테스트용 항목 A",
+    "title": "테스트용 최저임금",
+    "text": "\n테스트용 첫 줄\n테스트용 둘째 줄 <원문 확인>",
+    "source_url": "https://example.com/test/wage",
+    "checked_date": "2026-01-01"
+  },
+  {
+    "basis_key": "minimum_wage_2026",
+    "law_name": "테스트용 기준 자료",
+    "article_no": "테스트용 식별자",
+    "title": "테스트용 연도 기준",
+    "text": "테스트용 2026 자료",
+    "source_url": "https://example.com/test/2026",
+    "checked_date": "2026-01-01"
+  },
+  {
+    "basis_key": "weekly_holiday_pay",
+    "law_name": "테스트용 가상 자료",
+    "article_no": "테스트용 항목 B",
+    "title": "테스트용 주휴수당",
+    "text": "테스트용 주휴수당 검색 자료입니다.",
+    "source_url": "https://example.com/test/holiday",
+    "checked_date": "2026-01-01"
+  },
+  {
+    "basis_key": "wage_payment",
+    "law_name": "테스트용 가상 자료",
+    "article_no": "테스트용 항목 C",
+    "title": "테스트용 지급",
+    "text": "두 개의 테스트 키에 연결하는 문구",
+    "source_url": "https://example.com/test/payment",
+    "checked_date": "2026-01-01"
+  },
+  {
+    "basis_key": "wage_deduction",
+    "law_name": "테스트용 가상 자료",
+    "article_no": "테스트용 항목 C",
+    "title": "테스트용 지급",
+    "text": "두 개의 테스트 키에 연결하는 문구",
+    "source_url": "https://example.com/test/payment",
+    "checked_date": "2026-01-01"
+  }
+]

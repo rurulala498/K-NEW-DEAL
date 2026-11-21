@@ -3,10 +3,13 @@ from html import escape
 
 import streamlit as st
 
+from app.components.evidence import evidence_chips
 from app.format import (
-    PREMIUMS, REPORT_TERMS, REQUIRED_TERMS, WORKPLACE_LABELS, ReviewItem,
+    PREMIUMS, REQUIRED_TERMS, WORKPLACE_LABELS, ReviewItem,
     amount_range, monthly_total, won,
 )
+from rag.basis_map import pay_basis_keys
+from rag.store import RagStore
 from schemas import EngineResult, ExtractionResult
 from schemas.engine import ComparisonItem
 
@@ -102,16 +105,19 @@ def _table(rows: list[ComparisonItem]):
     )
 
 
-def pay_comparison(rows: list[ComparisonItem], premium_is_zero: bool):
+def pay_comparison(rows: list[ComparisonItem], premium_is_zero: bool, store: RagStore):
     visible = [row for row in rows if not _zero_premium(row)]
     _bars([row for row in visible if row.item != "합계"])
     if premium_is_zero and not any(row.item in PREMIUMS for row in visible):
         st.caption("연장·야간 가산은 해당 없음이에요.")
     with st.expander("상세 영수증 보기"):
         _table(visible)
+        for item in dict.fromkeys(row.item for row in visible):
+            st.markdown(f"**{item}**")
+            evidence_chips(store, pay_basis_keys(item), item)
 
 
-def review_cards(items: list[ReviewItem]):
+def review_cards(items: list[ReviewItem], store: RagStore):
     if not items:
         return
     st.subheader("확인할 항목")
@@ -125,15 +131,7 @@ def review_cards(items: list[ReviewItem]):
                         st.markdown(item.description)
                         if item.formula:
                             st.html(f'<p class="pay-formula">{escape(item.formula)}</p>')
-                        term = REPORT_TERMS.get(item.title)
-                        glossary = (
-                            f'<details class="term-chip"><summary>{escape(item.title)} 뜻 보기</summary>'
-                            f'<p>{escape(term)}</p></details>' if term else ""
-                        )
-                        st.html(
-                            '<div class="review-chips"><span class="basis-chip">근거 조문 준비 중</span>'
-                            f'{glossary}</div>'
-                        )
+                        evidence_chips(store, item.basis_keys, item.title)
 
 
 def required_term_grid(extraction: ExtractionResult):

@@ -45,23 +45,23 @@ def _draft(outcome: ExtractionOutcome, texts: DocumentTexts) -> ReviewDraft:
 
 def _intro():
     with st.container(key="intro"):
-        left, right = st.columns([7, 5], gap="large", vertical_alignment="center")
-        with left:
-            st.title("일한 만큼, 제대로 받았수당?")
-            st.markdown("근로계약서와 급여명세서를 맞춰 보며, 시급제 근로자의 받을 금액과 받은 금액을 한눈에 비교해요.")
-            st.caption(
-                "주민등록번호와 계좌번호 같은 개인정보는 가려 주세요. "
-                "AI로 읽을 때는 추출할 텍스트를 OpenAI API로 보내고, 앱은 서류를 디스크에 저장하지 않아요."
-            )
-            if not st.session_state.get("consented"):
-                st.button("동의하고 시작하기", key="consent", type="primary",
-                          on_click=lambda: st.session_state.update(consented=True))
-        with right:
-            receipt_preview()
+        st.title("서류 올리기")
+        st.markdown("근로계약서와 급여명세서를 올리면 받을 금액과 받은 금액을 비교할 수 있어요.")
+        st.caption(
+            "주민등록번호와 계좌번호 같은 개인정보는 가려 주세요. "
+            "AI로 읽을 때는 추출할 텍스트를 OpenAI API로 보내고, 앱은 서류를 디스크에 저장하지 않아요."
+        )
+        if not st.session_state.get("consented"):
+            st.button("동의하고 시작하기", key="consent", type="primary",
+                      on_click=lambda: st.session_state.update(consented=True))
+
+
+def _toggle_examples():
+    st.session_state.examples_open = not st.session_state.get("examples_open", False)
 
 
 def _sample_cards() -> ReviewDraft | None:
-    st.subheader("샘플로 먼저 해보기")
+    st.caption("가상 근로계약서와 급여명세서로 체험할 수 있어요.")
     with st.container(key="sample-pair"):
         for (key, (title, description)), column in zip(SAMPLES.items(), st.columns(2)):
             with column:
@@ -90,14 +90,6 @@ def upload_step() -> ReviewDraft | None:
     if not st.session_state.get("consented"):
         return None
 
-    st.markdown(
-        '<ul class="upload-guide" aria-label="점검 방법">'
-        '<li><span class="icon-line" aria-hidden="true">upload_file</span>서류를 골라요</li>'
-        '<li><span class="icon-line" aria-hidden="true">fact_check</span>뽑은 내용을 확인해요</li>'
-        '<li><span class="icon-line" aria-hidden="true">receipt_long</span>급여를 비교해요</li>'
-        '</ul>', unsafe_allow_html=True,
-    )
-    st.subheader("서류 올리기")
     settings = read_settings()
     config_notice = configuration_message(settings)
     if config_notice:
@@ -121,32 +113,39 @@ def upload_step() -> ReviewDraft | None:
             st.session_state.extraction_error = ("upload", str(problem))
             st.rerun()
 
-    chosen = _sample_cards()
-    if chosen:
-        return chosen
-
-    ai_choice = None
-    with st.expander("샘플 서류를 AI로 직접 읽어 보기"):
-        ai_choice = st.selectbox("AI로 읽을 가상 서류", list(SAMPLES),
-                                 format_func=lambda name: SAMPLES[name][0], key="ai-sample-choice")
-        if st.button("다시 시도" if error and error[0] == "sample" else "샘플 서류 읽기",
-                     key="read-ai-sample", disabled=bool(config_notice)):
-            try:
-                with st.spinner("가상 샘플 서류를 읽고 있어요…"):
-                    return _draft(extract_sample(ai_choice, settings), sample_texts(ai_choice))
-            except ExtractionRequestError as problem:
-                st.session_state.extraction_error = ("sample", str(problem))
-                st.rerun()
-
     error = st.session_state.get("extraction_error")
     if error:
-        st.warning(f"{error[1]} 다시 시도하거나, 직접 입력하거나, 위 샘플 카드로 체험해 보세요.")
+        st.warning(f"{error[1]} 다시 시도하거나, 직접 입력하거나, 아래 예시로 체험해 보세요.")
     if error or unsupported or (config_notice and (contract is not None or payslip is not None)):
         if st.button("직접 입력하기", key="manual-entry"):
-            texts = (sample_texts(ai_choice) if error and error[0] == "sample"
+            texts = (sample_texts(st.session_state.get("ai-sample-choice", "normal_case")) if error and error[0] == "sample"
                      else DocumentTexts(_manual_text(contract), _manual_text(payslip)))
             return ReviewDraft(
                 blank_result().model_dump(mode="json"), texts=texts,
                 notice="원문을 보며 빈칸에 직접 입력해 주세요.",
             )
+    with st.container(key="sample-demo"):
+        is_open = st.session_state.get("examples_open", False)
+        st.button("예시 접기" if is_open else "예시로 체험하기", key="show-sample-demo",
+                  type="tertiary", on_click=_toggle_examples)
+        if is_open:
+            chosen = _sample_cards()
+            if chosen:
+                return chosen
+            with st.expander("예시 영수증 보기"):
+                receipt_preview()
+
+
+    if settings.show_dev_tools:
+        with st.expander("샘플 서류를 AI로 직접 읽어 보기"):
+            ai_choice = st.selectbox("AI로 읽을 가상 서류", list(SAMPLES),
+                                     format_func=lambda name: SAMPLES[name][0], key="ai-sample-choice")
+            if st.button("다시 시도" if error and error[0] == "sample" else "샘플 서류 읽기",
+                         key="read-ai-sample", disabled=bool(config_notice)):
+                try:
+                    with st.spinner("가상 샘플 서류를 읽고 있어요…"):
+                        return _draft(extract_sample(ai_choice, settings), sample_texts(ai_choice))
+                except ExtractionRequestError as problem:
+                    st.session_state.extraction_error = ("sample", str(problem))
+                    st.rerun()
     return None

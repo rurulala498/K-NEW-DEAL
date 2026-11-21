@@ -2,22 +2,11 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple
 
+from rag.basis_map import check_basis_keys, pay_basis_keys
 from schemas import EngineResult, ExtractionResult
 from schemas.engine import CheckResult, ComparisonItem, ExpectedPayScenario
 
 WORKPLACE_LABELS = {"5_or_more": "5인 이상", "under_5": "5인 미만", "unknown": "모름"}
-REPORT_TERMS = {
-    "최저임금": "시급에 적용하는 최저 기준이에요.",
-    "휴게시간": "일하는 도중에 쉬는 시간이에요.",
-    "필수 기재사항": "계약서에서 확인할 근로 조건이에요.",
-    "특약": "계약서에 별도로 적은 약속이에요.",
-    "사업장 규모": "가산수당 적용 여부를 살펴볼 때 확인하는 근로자 수 기준이에요.",
-    "기본급": "시급과 소정근로시간으로 계산하는 급여 항목이에요.",
-    "주휴수당": "적용 조건을 충족할 때 유급으로 쉬는 날에 대한 지급 항목이에요.",
-    "연장 가산": "정해진 근로시간 기준을 넘는 구간에 추가로 계산하는 금액이에요.",
-    "야간 가산": "야간 구간의 근로에 추가로 계산하는 금액이에요.",
-    "합계": "계산된 급여 항목을 더한 금액이에요.",
-}
 REQUIRED_TERMS = {
     "임금": "hourly_wage",
     "소정근로시간": "weekly_hours",
@@ -34,6 +23,7 @@ class ReviewItem(NamedTuple):
     description: str
     formula: str | None
     scenario_name: str | None = None
+    basis_keys: tuple[str, ...] = ()
 
 
 def won(amount: Decimal | int | None) -> str:
@@ -114,7 +104,10 @@ def _check_formula(check: CheckResult, extraction: ExtractionResult) -> str | No
 
 def review_items(result: EngineResult, extraction: ExtractionResult) -> list[ReviewItem]:
     items = [
-        ReviewItem(check.item, conversational(check.description), _check_formula(check, extraction))
+        ReviewItem(
+            check.item, conversational(check.description), _check_formula(check, extraction),
+            basis_keys=check_basis_keys(check, extraction.contract),
+        )
         for check in result.checks if check.status == "needs_review"
     ]
     scenarios = {scenario.workplace_size: scenario for scenario in result.expected_pay}
@@ -122,6 +115,6 @@ def review_items(result: EngineResult, extraction: ExtractionResult) -> list[Rev
         sized_label = WORKPLACE_LABELS.get(row.workplace_size) if len(scenarios) > 1 else None
         items.append(ReviewItem(
             row.item, comparison_description(row), _pay_formula(row, scenarios.get(row.workplace_size), extraction),
-            sized_label,
+            sized_label, pay_basis_keys(row.item),
         ))
     return items

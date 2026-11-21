@@ -17,6 +17,7 @@ ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 class ApiSettings:
     api_key: str = field(repr=False)
     model: str
+    show_dev_tools: bool = False
 
 
 @dataclass(frozen=True)
@@ -39,7 +40,8 @@ def read_settings(env_file: Path = ENV_FILE) -> ApiSettings:
     values = dotenv_values(env_file, encoding="utf-8-sig", interpolate=False)
     key = os.environ.get("OPENAI_API_KEY") or values.get("OPENAI_API_KEY") or ""
     model = os.environ.get("OPENAI_MODEL") or values.get("OPENAI_MODEL") or ""
-    return ApiSettings(key.strip(), model.strip())
+    dev_tools = os.environ.get("SHOW_DEV_TOOLS", values.get("SHOW_DEV_TOOLS") or "")
+    return ApiSettings(key.strip(), model.strip(), show_dev_tools=dev_tools.strip().lower() == "true")
 
 
 def configuration_message(settings: ApiSettings) -> str | None:

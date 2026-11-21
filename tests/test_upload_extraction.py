@@ -34,8 +34,9 @@ def test_no_key_message_keeps_precomputed_sample_available(monkeypatch):
     app = ready_app(monkeypatch, ApiSettings("", ""))
     assert any(note.value == "API 키가 설정되지 않았어요" for note in app.info)
     assert app.button(key="read-uploads").disabled
-    assert app.button(key="read-ai-sample").disabled
+    assert not any(button.key == "read-ai-sample" for button in app.button)
 
+    app.button(key="show-sample-demo").click().run()
     app.button(key="sample-normal_case").click().run()
     assert not app.exception
     assert app.text_input(key="review-contract-hourly_wage").value == "10500"
@@ -96,6 +97,7 @@ def test_request_error_offers_retry_manual_input_and_saved_samples(monkeypatch):
     assert not app.exception
     assert any("AI 응답이 늦어졌어요" in note.value for note in app.warning)
     assert app.button(key="read-uploads").label == "다시 시도"
+    app.button(key="show-sample-demo").click().run()
     assert not app.button(key="sample-normal_case").disabled
     app.button(key="manual-entry").click().run()
     assert not app.exception
@@ -123,3 +125,12 @@ def test_two_format_failures_open_blank_review_with_original_documents(monkeypat
     assert "시급 10,500원" in app.session_state.draft.texts.contract
     assert app.text_input(key="review-contract-hourly_wage").value == ""
     assert any("AI가 추출 결과의 형식" in note.value for note in app.warning)
+
+def test_ai_sample_controls_are_visible_only_with_dev_tools(monkeypatch):
+    app = ready_app(monkeypatch, ApiSettings("fake", "fake-model", show_dev_tools=True))
+    assert any(row.label == "샘플 서류를 AI로 직접 읽어 보기" for row in app.expander)
+    assert not app.button(key="read-ai-sample").disabled
+
+    app = ready_app(monkeypatch, ApiSettings("fake", "fake-model"))
+    assert not any(row.label == "샘플 서류를 AI로 직접 읽어 보기" for row in app.expander)
+    assert not any(button.key == "read-ai-sample" for button in app.button)

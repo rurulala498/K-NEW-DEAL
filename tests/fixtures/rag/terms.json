@@ -1,0 +1,15 @@
+[
+  {
+    "term": "테스트용 주휴수당",
+    "aliases": [
+      "주휴 수당",
+      "테스트 휴일 급여"
+    ],
+    "easy_explanation": "검색 확인에 사용하는 테스트용 설명이에요.",
+    "related_basis_keys": [
+      "weekly_holiday_pay"
+    ],
+    "source_url": "https://example.com/test/term",
+    "checked_date": "2026-01-01"
+  }
+]

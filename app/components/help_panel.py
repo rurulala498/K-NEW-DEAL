@@ -1,12 +1,14 @@
 import streamlit as st
 
-from app.format import REPORT_TERMS, ReviewItem, review_rows, won
+from app.components.evidence import glossary, help_channels
+from app.format import ReviewItem, review_rows, won
+from rag.store import RagStore
 from schemas import EngineResult
 
 QUESTIONS = ("주휴수당이 뭐예요?", "차이는 어떻게 봐요?", "다음에 뭘 확인해요?")
 
 
-def _chat():
+def _chat(store: RagStore):
     with st.container(border=True, key="chat-panel"):
         st.subheader("도움 챗봇")
         st.caption("질문을 골라 보거나 직접 써 볼 수 있어요.")
@@ -22,8 +24,7 @@ def _chat():
             st.text(st.session_state["receipt_question"])
             st.markdown("**준비 중** · 지금은 샘플 답변이에요. 상세 영수증에서 항목별 금액을 비교해 보세요.")
         with st.expander("급여 용어 찾아보기"):
-            for name in ("기본급", "주휴수당", "연장 가산", "야간 가산"):
-                st.markdown(f"**{name}** · {REPORT_TERMS[name]}")
+            glossary(store)
 
 
 def _messages(result: EngineResult, items: list[ReviewItem]):
@@ -47,7 +48,8 @@ def _messages(result: EngineResult, items: list[ReviewItem]):
                 language=None, wrap_lines=True)
 
 
-def help_panel(result: EngineResult, items: list[ReviewItem]):
-    _chat()
+def help_panel(result: EngineResult, items: list[ReviewItem], store: RagStore):
+    _chat(store)
     if items:
         _messages(result, items)
+    help_channels(store)
