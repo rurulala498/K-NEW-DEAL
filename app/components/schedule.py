@@ -8,7 +8,7 @@ import streamlit as st
 
 from app.components.fields import MISSING_FIELD, edited_field
 from engine.schedule import DAY, WEEKDAYS, hours_text, measure_shift, schedule_hours, weekday
-from schemas.extraction import Contract, ExtractedField, ScheduleEntry
+from schemas.extraction import Contract, ExtractedField, ScheduleEntry, normalize_clock
 
 EDITOR_KEY = "review-work-schedule"
 LABELS = {
@@ -20,8 +20,9 @@ LABELS = {
 def _clock_text(clock: time | None, start: time | None = None) -> str:
     if clock is None:
         return ""
-    prefix = "익일 " if start is not None and clock.replace(tzinfo=None) < start.replace(tzinfo=None) else ""
-    return prefix + clock.isoformat(timespec="seconds" if clock.second else "minutes")
+    clock = normalize_clock(clock)
+    prefix = "익일 " if start is not None and clock < normalize_clock(start) else ""
+    return prefix + clock.isoformat(timespec="minutes")
 
 
 def _display(entry: ScheduleEntry, index: int) -> dict:
@@ -46,10 +47,7 @@ def _parse_entry(row: dict, previous: ScheduleEntry | None) -> ScheduleEntry:
     for field in ("start", "end", "break_start", "break_end"):
         entered = row[field].removeprefix("익일").strip()
         try:
-            clock = time.fromisoformat(entered) if entered else None
-            if clock is not None and clock.tzinfo is not None:
-                raise ValueError
-            values[field] = clock
+            values[field] = normalize_clock(entered or None)
         except ValueError:
             raise ValueError(f"{LABELS[field]} 시각을 HH:MM 형식으로 적어 주세요.") from None
     if row["break_minutes"] and not re.fullmatch(r"\d+", row["break_minutes"]):

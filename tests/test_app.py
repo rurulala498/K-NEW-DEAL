@@ -120,3 +120,28 @@ def test_invalid_wage_keeps_review_step_and_names_the_field():
     assert not app.exception
     assert not app.metric
     assert any("시급 (원)의 형식을 확인해 주세요." in row.value for row in app.markdown)
+
+
+def test_review_displays_gross_total_hint_and_submits_legacy_times():
+    extraction = load_sample("review_case")
+    extraction["contract"]["work_start"]["value"] = "09:00Z"
+    extraction["contract"]["work_end"]["value"] = "14:30:00+09:00"
+    extraction["payslip"]["total_paid"]["value"] = None
+    app = AppTest.from_file(str(APP), default_timeout=20)
+    app.session_state["step"] = 2
+    app.session_state["draft"] = ReviewDraft(sample_name="review_case", extraction=extraction)
+    app.run()
+
+    assert not app.exception
+    assert any("명세서의 지급 총액(세전)을 확인해 주세요" in row.value for row in app.warning)
+    gross = app.text_input(key="review-payslip-total_paid")
+    assert gross.value == "" and "세전" in gross.label
+    times = app.dataframe[0].value
+    assert times.loc[0, "start"] == "09:00" and times.loc[0, "end"] == "14:30"
+    gross.set_value("869000")
+    app.form_submit_button[0].click().run()
+
+    assert not app.exception
+    assert app.session_state.confirmed.payslip.total_paid.value == 869000
+    assert app.session_state.confirmed.contract.work_start.value.tzinfo is None
+    assert app.metric[0].value == "1,076,170원"

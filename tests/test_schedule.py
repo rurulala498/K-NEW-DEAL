@@ -26,7 +26,7 @@ SETTINGS = ApiSettings("fake-key", "fake-model")
 
 class ScheduleClient:
     def read(self, prompt, payload, schema):
-        assert "서류 추출 프롬프트 v2" in prompt
+        assert "서류 추출 프롬프트 v3" in prompt
         assert set(json.loads(payload)) == {"contract"}
         return ModelReply(expected_fields("schedule").model_dump(mode="json"))
 
@@ -67,7 +67,7 @@ def test_schedule_fixture_extraction_highlight_values_and_example_pay():
     assert all(row.status == "not_compared" for row in result.comparison)
     assert not any(row.item == "요일별 근무 시간" for row in result.limitations)
     truth = dict(field_values(expected_fields("schedule").model_dump()))
-    assert truth["contract.work_schedule.2.end"] == time(0, 30)
+    assert truth["contract.work_schedule.2.end"] == "00:30"
     assert "contract.work_schedule.2.source_text" not in truth
 
 

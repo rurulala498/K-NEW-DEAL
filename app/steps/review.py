@@ -25,11 +25,14 @@ OTHER_FIELDS = {
 }
 PAYSLIP_FIELDS = {
     "pay_period_start": "정산 시작일 (YYYY-MM-DD)", "pay_period_end": "정산 종료일 (YYYY-MM-DD)",
-    "total_paid": "총 지급액 (원)",
+    "total_paid": "지급 총액(세전) (원)",
 }
 ITEM_FIELDS = {"name": "항목명", "amount": "금액 (원)", "category": "분류"}
 TERM_FIELDS = {"text": "특약 내용", "type": "특약 유형"}
-ITEM_CHOICES = {"category": {**PAYSLIP_CATEGORIES, "unclassified": "분류 불가"}}
+ITEM_CHOICES = {"category": {
+    **{key: label for key, label in PAYSLIP_CATEGORIES.items() if key != "total"},
+    "unclassified": "분류 불가",
+}}
 TERM_CHOICES = {"type": {"penalty": "위약금 예정", "wage_deduction": "임금 공제", "other": "기타"}}
 LABELS = {**CORE_FIELDS, **OTHER_FIELDS, **PAYSLIP_FIELDS, **ITEM_FIELDS, **TERM_FIELDS,
           "pay_period_rule": "임금 정산 기간", "workplace_size": "사업장 규모"}
@@ -54,11 +57,18 @@ def _core_inputs(contract):
 
 def _additional_fields(contract, payslip):
     contract_priority = _priority_labels(contract, OTHER_FIELDS)
-    payslip_priority = _priority_labels(payslip, PAYSLIP_FIELDS) if payslip is not None else {}
+    payslip_labels = {name: label for name, label in PAYSLIP_FIELDS.items() if name != "total_paid"}
+    payslip_priority = _priority_labels(payslip, payslip_labels) if payslip is not None else {}
     terms = contract["special_terms"]
     items = payslip["items"] if payslip is not None else None
     term_fixes, item_fixes = {}, {}
     contract_result, payslip_result = {}, {}
+    if payslip is not None:
+        if payslip["total_paid"]["value"] is None:
+            st.warning("명세서의 지급 총액(세전)을 확인해 주세요")
+        payslip_result["total_paid"] = text_field(
+            payslip["total_paid"], PAYSLIP_FIELDS["total_paid"], "review-payslip-total_paid",
+        )
     if contract_priority or payslip_priority or _has_low_rows(terms) or (items and _has_low_rows(items)):
         st.markdown("**신뢰도가 낮은 값도 먼저 확인해요**")
         contract_result.update(text_fields(contract, contract_priority, "review-contract"))
@@ -80,7 +90,7 @@ def _additional_fields(contract, payslip):
         if payslip is not None:
             st.markdown("**명세서 세부 항목**")
             payslip_result.update(text_fields(
-                payslip, {name: label for name, label in PAYSLIP_FIELDS.items() if name not in payslip_priority},
+                payslip, {name: label for name, label in payslip_labels.items() if name not in payslip_priority},
                 "review-payslip",
             ))
             st.markdown("**급여 항목**")

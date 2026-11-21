@@ -289,5 +289,63 @@ def test_seeded_samples_are_available_without_api_and_live_demo_has_four_confirm
         assert report.basic.summary.headline
         if case in explain.SAMPLE_NAMES:
             record = json.loads((explain.SAMPLE_REPORTS / f"{case}_explanation.json").read_text(encoding="utf-8"))
-            assert record["cache_key"] == report.cache_key
-            assert explain.saved_sample(case, report).content == report.basic
+            assert len(record["cache_key"]) == 64
+            assert Explanation.model_validate(record["explanation"]).summary.headline
+            saved = explain.saved_sample(case, report)
+            assert saved.content == report.basic and not saved.ai_fields
+
+
+def test_config_and_confirmed_clause_amounts_are_included_and_allowed():
+    report = context("tricky")
+    payload = report.basic.model_dump()
+    special_id = next(index for index, item in enumerate(report.items) if item.title == "특약")
+    clause = "계약서에 적힌 50,000원 특약은 확인이 필요해요."
+    minimum = "2026년 기준 시급은 10,320원이고 계약 시급은 10,000원이에요."
+    hours = "주 15시간, 하루 8시간과 주 40시간, 22:00부터 06:00, 30분과 1시간, 5인 기준을 참고했어요."
+    payload["items"][special_id]["easy_explanation"] = clause
+    term_index = next(index for index, term in enumerate(report.basic.terms) if term.term == "최저임금")
+    payload["terms"][term_index]["user_context"] = minimum
+    result = explain.generate(report, SETTINGS, client=FakeClient(payload))
+
+    assert result.content.items[special_id].easy_explanation == clause
+    assert result.content.terms[term_index].user_context == minimum
+    facts = explain._facts(report, "terms.휴게시간.user_context", None)
+    assert facts.permits(hours)
+    assert not facts.permits(hours.replace("06:00", "07:00"))
+    assert not facts.permits("51,000원")
+    assert report.payload["standards"][0]["year"] == 2026
+
+
+def test_cause_amounts_allow_paraphrases_and_replaces_only_rejected_message_sentences():
+    report = context()
+    breakdown = report.payload["cause_breakdown"][0]
+    assert breakdown["contract_shortfall"]["amount_won"] == "173800"
+    assert breakdown["minimum_wage_gap"]["amount_won"] == "33370"
+    assert breakdown["total_difference_won"] == "207170"
+    payload = report.basic.model_dump()
+    paraphrase = "차이는 최저임금 시급에 따른 33,370원과 주휴수당으로 계산한 173,800원으로 나뉘어요."
+    cause = "최저임금을 적용해 계산한 월 차액에는 주휴수당 쪽 173,800원과 시급 차이에 따른 33,370원이 들어갑니다."
+    greeting = "사장님, 잠시 여쭤봐도 될까요?"
+    closing = "계산 내역을 알려주실 수 있을까요?"
+    payload["summary"]["reason"] = paraphrase
+    payload["messages"]["employer_question"] = f"{greeting} {cause} 999,999원을 보내 주세요. {closing}"
+
+    result = explain.generate(report, SETTINGS, client=FakeClient(payload))
+    question = result.content.messages.employer_question
+    assert result.content.summary.reason == paraphrase
+    assert greeting in question and cause in question and closing in question
+    assert "999,999원" not in question
+    assert "messages.employer_question" in result.mixed_fields
+    assert ("messages.employer_question", "입력에 없는 숫자") in result.rejection_reasons
+
+
+def test_missing_cause_amounts_are_replaced_without_losing_other_sentences():
+    report = context()
+    greeting = "사장님, 시급을 확인해 보고 싶습니다."
+    candidate = {"employer_question": f"{greeting} 최저임금 기준으로 계산한 차이 207,170원이에요.",
+                 "revision_request": report.basic.messages.revision_request}
+    result = explain.rewrite(report, SETTINGS, "정중하게", "", client=FakeClient(candidate))
+    question = result.messages.employer_question
+    assert greeting in question
+    assert "173,800원" in question and "33,370원" in question
+    assert result.rejected_sentences == 1

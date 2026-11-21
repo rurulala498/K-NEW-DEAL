@@ -16,10 +16,21 @@ from llm.documents import DocumentTexts
 from llm.samples import sample_texts
 from schemas.extraction import Contract, DocumentsProvided, ExtractionResult, ExtractedField, Payslip
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 PROMPT_DIR = Path(__file__).with_name("prompts")
 NUMBER = re.compile(r"(?<!\d)[+-]?\d+(?:,\d{3})*(?:\.\d+)?(?!\d)")
 TERM_TYPES = {"penalty", "wage_deduction", "other"}
+GROSS_TOTAL = re.compile(
+    r"(?<!실)(?:총지급액|지급총액|지급(?:액)?합계|지급액계|총급여액|급여총액|급여합계)"
+    r"|(?:세전|공제전)(?:지급총액|총지급액|급여총액|총급여액|지급액|총급여|급여|합계|총액)"
+    r"|(?:지급액|급여|합계|총액)\((?:세전|공제전)\)"
+)
+NET_PAY = re.compile(r"실수령(?:액)?|실지급(?:액|총액|합계)|차인(?:지급)?액|차감(?:지급)?액|공제후|세후")
+DEDUCTION = re.compile(
+    r"공제|세금|(?:근로)?소득세|지방소득세|주민세|4대(?:사회)?보험|국민연금|(?:국민)?건강보험|"
+    r"(?:노인)?장기요양(?:보험)?|고용보험|산재보험"
+)
+SUMMARY_NAME = re.compile(r"^(?:합계|총액|총합계|소계)(?:\(.*\))?$")
 HEADCOUNT = re.compile(
     r"상시\s*근로자(?:\s*수)?(?:는|은)?\s*[:：=]?\s*(\d{1,3}(?:,\d{3})*|\d+)\s*(?:명|인)"
     r"(?!\s*(?:이상|이하|미만|초과|[~～-]))"
@@ -122,7 +133,48 @@ def _audit_terms(contract: Contract, original: str):
             term.type.confidence = "low"
 
 
-def _audit_categories(payslip: Payslip):
+def _gross_amount_quoted(field: ExtractedField, original: str) -> bool:
+    quote = field.source_text
+    if field.value is None or not quote or quote not in original:
+        return False
+    for line in original.splitlines():
+        if not line.strip() or (quote not in line and line not in quote):
+            continue
+        compact = "".join(normalize("NFKC", line).split())
+        for label in GROSS_TOTAL.finditer(compact):
+            prefix = compact[:label.start()]
+            previous_net = list(NET_PAY.finditer(prefix))
+            if previous_net and not NUMBER.search(prefix[previous_net[-1].end():]):
+                continue
+            tail = compact[label.end():]
+            number = NUMBER.search(tail)
+            if not number or NET_PAY.search(tail[:number.start()]):
+                continue
+            if DEDUCTION.search(tail[:number.start()].replace("공제전", "")):
+                continue
+            if re.match(r"(?:원)?\((?:공제후|세후)\)", tail[number.end():]):
+                continue
+            if Decimal(number.group().replace(",", "")) == field.value:
+                return _numeric_value_in_quote(field.value, quote)
+    return False
+
+
+def _audit_payslip(payslip: Payslip, original: str) -> None:
+    gross = payslip.total_paid if _gross_amount_quoted(payslip.total_paid, original) else None
+    included = []
+    for line in payslip.items.value or []:
+        name = "".join(normalize("NFKC", line.name.value or "").split())
+        if NET_PAY.search(name) or DEDUCTION.search(name.replace("공제전", "")) or line.category.value == "deduction":
+            continue
+        if line.category.value == "total" or GROSS_TOTAL.search(name) or SUMMARY_NAME.fullmatch(name):
+            if gross is None and _gross_amount_quoted(line.amount, original):
+                gross = line.amount
+            continue
+        included.append(line)
+    if payslip.items.value is not None:
+        payslip.items.value = included
+    payslip.total_paid = gross if gross is not None else ExtractedField(value=None, confidence="low")
+    _audit_fields(payslip, original)
     for line in payslip.items.value or []:
         name = "".join((line.name.value or "").split())
         label = PAYSLIP_NAMES.get(name)
@@ -143,6 +195,7 @@ def extract_documents(
     *,
     client: ExtractionClient | None = None,
     prompt_version: str = PROMPT_VERSION,
+    retry_validation: bool = True,
 ) -> ExtractionOutcome:
     """Extract the supplied documents without retaining or caching the inputs."""
     prompt = (PROMPT_DIR / f"extraction_{prompt_version}.txt").read_text(encoding="utf-8")
@@ -157,7 +210,7 @@ def extract_documents(
     result = blank_result(provided)
     active_client = client if client is not None else ExtractionClient(settings)
     all_usage = []
-    for attempt in range(2):
+    for attempt in range(2 if retry_validation else 1):
         instruction = prompt
         if attempt:
             instruction += "\n이전 응답의 형식을 읽을 수 없었다. 지정된 JSON 형식과 모든 필드를 다시 확인한다."
@@ -181,8 +234,7 @@ def extract_documents(
                     value="5_or_more" if count >= 5 else "under_5", confidence="high", source_text=quote,
                 )
         if texts.payslip is not None:
-            _audit_fields(fields.payslip, texts.payslip)
-            _audit_categories(fields.payslip)
+            _audit_payslip(fields.payslip, texts.payslip)
             result.payslip = fields.payslip
         return ExtractionOutcome(result, tuple(all_usage))
     return ExtractionOutcome(result, tuple(all_usage), validation_failed=True)

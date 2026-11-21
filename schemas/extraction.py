@@ -1,8 +1,12 @@
 from datetime import date, time
 from decimal import Decimal
+import re
 from typing import Annotated, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, Field, NonNegativeInt, StrictBool, StringConstraints
+from pydantic import (
+    BaseModel, BeforeValidator, Field, NonNegativeInt, PlainSerializer,
+    StrictBool, StringConstraints, WithJsonSchema,
+)
 
 Confidence = Literal["high", "low"]
 KnownWorkplaceSize = Literal["5_or_more", "under_5"]
@@ -11,6 +15,26 @@ Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Amount = Annotated[Decimal, Field(allow_inf_nan=False)]
 NonNegativeNumber = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
 T = TypeVar("T")
+CLOCK_PATTERN = r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+_INPUT_CLOCK = re.compile(r"[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:[.,][0-9]+)?)?(?:[Zz]|[+-][0-9]{2}(?::?[0-9]{2})?)?")
+
+
+def normalize_clock(value: time | str | None) -> time | None:
+    """Keep the local time printed on the document, to minute precision."""
+    if value is None:
+        return None
+    if isinstance(value, str) and _INPUT_CLOCK.fullmatch(value.strip()):
+        value = time.fromisoformat(value.strip().upper())
+    if not isinstance(value, time):
+        raise ValueError("시각은 HH:MM 형식으로 적어 주세요.")
+    return time(value.hour, value.minute)
+
+
+WallClock = Annotated[
+    time, BeforeValidator(normalize_clock),
+    PlainSerializer(lambda clock: clock.isoformat(timespec="minutes"), return_type=str, when_used="json"),
+    WithJsonSchema({"type": "string", "pattern": CLOCK_PATTERN}),
+]
 
 
 class ExtractedField(BaseModel, Generic[T]):
@@ -26,10 +50,10 @@ class SpecialTerm(BaseModel):
 
 class ScheduleEntry(BaseModel):
     days: ExtractedField[list[Text]]
-    start: ExtractedField[time]
-    end: ExtractedField[time]
-    break_start: ExtractedField[time]
-    break_end: ExtractedField[time]
+    start: ExtractedField[WallClock]
+    end: ExtractedField[WallClock]
+    break_start: ExtractedField[WallClock]
+    break_end: ExtractedField[WallClock]
     break_minutes: ExtractedField[NonNegativeInt]
     source_text: str | None = None
 
@@ -39,8 +63,8 @@ class Contract(BaseModel):
     daily_hours: ExtractedField[NonNegativeNumber]
     weekly_hours: ExtractedField[NonNegativeNumber]
     work_days: ExtractedField[list[Text]]
-    work_start: ExtractedField[time]
-    work_end: ExtractedField[time]
+    work_start: ExtractedField[WallClock]
+    work_end: ExtractedField[WallClock]
     break_minutes: ExtractedField[NonNegativeInt]
     contract_start: ExtractedField[date]
     contract_end: ExtractedField[date]
@@ -95,7 +119,7 @@ class Payslip(BaseModel):
     pay_period_start: ExtractedField[date]
     pay_period_end: ExtractedField[date]
     items: ExtractedField[list[PayslipItem]]
-    total_paid: ExtractedField[Amount]
+    total_paid: ExtractedField[Amount] = Field(description="명세서에 명시된 공제 전 지급 총액. 실수령액만 있으면 null.")
 
 
 class ExtraAnswers(BaseModel):

@@ -70,14 +70,22 @@ def sentences(text: str) -> list[str]:
     return [part.strip() for part in re.split(r"(?<=[.!?。])\s+|[\r\n]+", text.strip()) if part.strip()]
 
 
-def is_safe(text: str, facts: NumericFacts, *, payslip: bool, workplace: str | None) -> bool:
-    if len(text) > 1400 or FORBIDDEN.search(normalize("NFKC", text)) or not facts.permits(text):
-        return False
+def safety_issue(text: str, facts: NumericFacts, *, payslip: bool, workplace: str | None) -> str | None:
+    if len(text) > 1400:
+        return "문장 길이 초과"
+    if FORBIDDEN.search(normalize("NFKC", text)):
+        return "금지 표현"
     # The salutation is public wording, never a confirmed person's name.
     without_money = re.sub(r"\d[\d,.]*\s*원", "", text)
     if private_text(without_money.replace("사장님", ""), workplace):
-        return False
-    return payslip or not PAYSLIP_LANGUAGE.search(text)
+        return "개인정보"
+    if not payslip and PAYSLIP_LANGUAGE.search(text):
+        return "명세서 없이 지급액 언급"
+    return None if facts.permits(text) else "입력에 없는 숫자"
+
+
+def is_safe(text: str, facts: NumericFacts, *, payslip: bool, workplace: str | None) -> bool:
+    return safety_issue(text, facts, payslip=payslip, workplace=workplace) is None
 
 
 def safe_style_request(text: str) -> list[str]:

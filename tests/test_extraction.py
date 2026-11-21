@@ -17,7 +17,7 @@ from llm.client import ApiSettings, ExtractionClient, ModelReply, TokenUsage, re
 from llm.documents import DocumentReadError, DocumentTexts, TEXT_REQUIRED, read_document
 from llm.extract import DocumentExtraction, blank_result, extract_documents, extract_sample
 from llm.samples import sample_texts
-from scripts.eval_extraction import CASES, expected_fields, read_fixture_pair
+from scripts.eval_extraction import CASES, expected_fields, field_values, read_fixture_pair
 
 SETTINGS = ApiSettings("unit-test-fake-key", "unit-test-extraction-model")
 TEXTS = DocumentTexts(
@@ -269,3 +269,74 @@ def test_contract_only_sends_no_payslip_and_discards_unsolicited_payslip_values(
     assert outcome.result.contract.hourly_wage.value == (10500 if valid_reply else None)
     assert all(field["value"] is None and field["source_text"] is None and field["confidence"] == "low"
                for field in outcome.result.payslip.model_dump().values())
+
+
+@pytest.mark.parametrize("clock", ["19:00Z", "19:00+09:00", "19:00:00"])
+def test_extraction_and_evaluation_normalize_wall_clocks(clock):
+    payload = response_payload()
+    contract = payload["contract"]
+    contract["work_start"] = field(clock, "19:00")
+    contract["work_end"] = field("00:30-05:00", "00:30")
+    contract["work_schedule"] = field([{
+        "days": field(["금"], "금"), "start": field(clock, "19:00"),
+        "end": field("00:30-05:00", "00:30"), "break_start": field("22:15:00Z", "22:15"),
+        "break_end": field("22:45+09:00", "22:45"), "break_minutes": field(None),
+    }], "금 19:00~00:30 휴게 22:15~22:45")
+    documents = DocumentTexts("금 19:00~00:30 휴게 22:15~22:45", TEXTS.payslip)
+    fake = FakeClient(payload)
+    result = extract_documents(documents, SETTINGS, client=fake).result
+    assert result.contract.work_start.value.tzinfo is None
+    json_contract = result.model_dump(mode="json")["contract"]
+    assert json_contract["work_start"]["value"] == "19:00"
+    assert json_contract["work_end"]["value"] == "00:30"
+    row = json_contract["work_schedule"]["value"][0]
+    assert row["break_start"]["value"] == "22:15"
+    assert row["break_end"]["value"] == "22:45"
+    assert row["start"]["confidence"] == "high"
+    assert dict(field_values(payload))["contract.work_start"] == "19:00"
+    schema = fake.calls[0][1].model_json_schema()
+    nodes = schema["$defs"][schema["$defs"]["Contract"]["properties"]["work_start"]["$ref"].split("/")[-1]]
+    assert nodes["properties"]["value"]["anyOf"][0]["type"] == "string"
+    assert "pattern" in nodes["properties"]["value"]["anyOf"][0]
+    assert "시간대 없이 HH:MM" in fake.calls[0][0]
+
+
+@pytest.mark.parametrize("includes_gross_total", [True, False])
+def test_payslip_keeps_only_gross_total_and_pay_details(includes_gross_total):
+    payload = response_payload()
+    net_label = "실수령액"
+    net_amount = 900000
+    net = f"{net_label} {net_amount:,}원"
+    gross = "공제 전 지급 총액 912,450원"
+    rows = (
+        ("기본급", 912450, "base_pay", "기본급 912,450원"),
+        ("소득세", 8000, "base_pay", "소득세 8,000원"),
+        ("국민연금", 4450, "unclassified", "국민연금 4,450원"),
+        ("공제 합계", 12450, "total", "공제 합계 12,450원"),
+        ("실수령액", net_amount, "total", net),
+        ("합계", net_amount, "total", net),
+    )
+    if includes_gross_total:
+        rows += (("지급 합계", 912450, "total", gross),)
+    payload["payslip"]["items"] = field([
+        {"name": field(name, quote), "amount": field(amount, quote), "category": field(category, quote)}
+        for name, amount, category, quote in rows
+    ])
+    payload["payslip"]["total_paid"] = field(net_amount, net)
+    texts = DocumentTexts(TEXTS.contract, "\n".join(quote for _, _, _, quote in rows))
+    result = extract_documents(texts, SETTINGS, client=FakeClient(payload)).result.payslip
+    assert [row.name.value for row in result.items.value] == ["기본급"]
+    assert result.total_paid.value == (912450 if includes_gross_total else None)
+    assert result.total_paid.source_text == (gross if includes_gross_total else None)
+
+
+@pytest.mark.parametrize("quote", [
+    "총 지급액 912,450원 (공제 후)", "실수령액 (총 지급액) 912,450원", "세전 기본급 912,450원",
+])
+def test_payslip_requires_evidence_of_a_gross_total(quote):
+    payload = response_payload()
+    payload["payslip"]["total_paid"] = field(912450, quote)
+    result = extract_documents(
+        DocumentTexts(TEXTS.contract, quote), SETTINGS, client=FakeClient(payload),
+    ).result.payslip
+    assert result.total_paid.value is None and result.total_paid.confidence == "low"

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sys
 from tempfile import NamedTemporaryFile
+from time import perf_counter
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -49,6 +50,7 @@ def save_sample(case: str, context: explain.ExplanationContext, result: explain.
 def main() -> int:
     parser = argparse.ArgumentParser(description="가상 사례의 결과 설명과 대응 문구를 OpenAI로 생성합니다.")
     parser.add_argument("--case", choices=CASES)
+    parser.add_argument("--no-retry", action="store_true", help="형식 검증에 실패해도 사례당 한 번만 요청합니다.")
     parser.add_argument("--save-samples", action="store_true", help="화면의 정상·확인 필요 샘플 설명 파일을 갱신합니다.")
     args = parser.parse_args()
     if os.getenv("RUN_LIVE") != "1":
@@ -63,8 +65,12 @@ def main() -> int:
     for case in (args.case,) if args.case else CASES:
         extraction = confirmed_sample(case)
         context = explain.build_context(run_engine(extraction), extraction, default_store())
-        result = explain.generate(context, settings)
-        print(f"\n{case} · 검증 제외 문장 {result.rejected_sentences}개 · 형식 실패 {result.format_failures}회")
+        start = perf_counter()
+        result = explain.generate(context, settings, retry_validation=not args.no_retry)
+        print(f"\n{case} · 검증 제외 문장 {result.rejected_sentences}개 · 형식 실패 {result.format_failures}회"
+              f" · {perf_counter() - start:.2f}초")
+        for path, reason in result.rejection_reasons:
+            print(f"  {path} · {reason}")
         for index, tokens in enumerate(result.usage, 1):
             print(f"응답 {index} · 입력 {tokens.input_tokens:,} · 출력 {tokens.output_tokens:,} 토큰")
         if not result.ai_fields:

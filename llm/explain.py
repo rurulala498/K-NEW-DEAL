@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from hashlib import sha256
 import json
@@ -8,18 +8,20 @@ from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
-from app.format import ReviewItem, review_items, review_rows, won
+from app.format import ReviewItem, review_items, review_rows
+from config import load_standards
 from engine.schedule import WEEKDAYS, hours_text, weekday
 from llm.client import ApiSettings, ExtractionClient, ExtractionRequestError, TokenUsage, configuration_message, read_settings
-from llm.guards import NumericFacts, is_safe, numeric_tokens, private_text, safe_style_request, sentences
+from llm.guards import NumericFacts, numeric_tokens, private_text, safe_style_request, safety_issue, sentences
 from llm.templates import basic_explanation, cause_label, default_messages
 from rag.store import RagStore
 from schemas import EngineResult, ExtractionResult
 from schemas.engine import CheckResult, ComparisonItem
 from schemas.explanation import EmployerMessages, Explanation, ItemExplanation, SummaryExplanation, TermExplanation
 
-EXPLAIN_VERSION = "v2"
-REWRITE_VERSION = "v1"
+EXPLAIN_VERSION = "v3"
+REWRITE_VERSION = "v2"
+MINIMUM_CONTEXT = re.compile(r"최저\s*임금[^.!?]{0,22}(?:계산|적용|가정|기준이라면|기준이면)")
 PROMPTS = Path(__file__).with_name("prompts")
 SAMPLE_REPORTS = Path(__file__).resolve().parents[1] / "data" / "samples"
 SAMPLE_NAMES = ("normal_case", "review_case")
@@ -57,6 +59,7 @@ class Explained:
     rejected_sentences: int = 0
     format_failures: int = 0
     mixed_fields: frozenset[str] = frozenset()
+    rejection_reasons: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -136,6 +139,29 @@ def _term_candidates(result: EngineResult, store: RagStore, keys: list[str]) -> 
     return list(names)[:6]
 
 
+def _standards_context(result: EngineResult) -> list[dict]:
+    years = {line.standards_year for scenario in result.expected_pay for line in scenario.items}
+    records = []
+    for year in sorted(years):
+        config = load_standards(year)
+        if isinstance(config, str):
+            continue
+        breaks = config["break_time"]["value"]
+        records.append({
+            "year": year,
+            "minimum_hourly_wage": config["minimum_hourly_wage"]["value"],
+            "weekly_holiday_min_hours": config["weekly_holiday_min_hours"]["value"],
+            "overtime_hours": config["overtime_hours"]["value"],
+            "night_work_hours": config["night_work_hours"]["value"],
+            "break_time": [
+                {**rule, **({"break_hours": rule["break_minutes"] // 60} if rule["break_minutes"] % 60 == 0 else {})}
+                for rule in breaks
+            ],
+            "premium_min_workplace_size": config["premium_min_workplace_size"]["value"],
+        })
+    return records
+
+
 def build_context(result: EngineResult, extraction: ExtractionResult, store: RagStore) -> ExplanationContext:
     if not extraction.user_confirmed:
         raise ValueError("사용자가 확인한 결과만 설명할 수 있어요.")
@@ -156,9 +182,17 @@ def build_context(result: EngineResult, extraction: ExtractionResult, store: Rag
          "description": item.description, "basis_keys": [key for key in item.basis_keys if key in available]}
         for index, (item, row) in enumerate(zip(items, rows), 1)
     ]
-    totals = [
-        {**row.model_dump(mode="json"), "contract_cause": cause_label(row, result.comparison)}
-        for row in result.comparison if row.item == "합계"
+    totals = [row.model_dump(mode="json") for row in result.comparison if row.item == "합계"]
+    cause_breakdown = [
+        {
+            "workplace_size": row.workplace_size,
+            "contract_shortfall": {"label": cause_label(row, result.comparison), "amount_won": str(row.contract_difference)},
+            "minimum_wage_gap": {"amount_won": str(row.minimum_wage_difference)},
+            "total_difference_won": str(row.difference),
+        }
+        for row in result.comparison
+        if row.item == "합계" and row.basis == "minimum_wage"
+        and all(amount is not None for amount in (row.contract_difference, row.minimum_wage_difference, row.difference))
     ]
     payload = {
         "confirmed": confirmed,
@@ -166,6 +200,8 @@ def build_context(result: EngineResult, extraction: ExtractionResult, store: Rag
         "expected_pay": [row.model_dump(mode="json") for row in result.expected_pay],
         "comparison": [row.model_dump(mode="json") for row in result.comparison],
         "summary_facts": totals,
+        "cause_breakdown": cause_breakdown,
+        "standards": _standards_context(result),
         "limitations": [
             {"item": row.item if row.item.removesuffix("(월)") in SAFE_LIMIT_ITEMS else "기타 지급 항목",
              "reason": row.reason}
@@ -184,12 +220,31 @@ def build_context(result: EngineResult, extraction: ExtractionResult, store: Rag
     return ExplanationContext(result, payload, items, rows, basic, extraction.contract.workplace.value)
 
 
-def _facts(context: ExplanationContext, path: str, row: CheckResult | ComparisonItem | None) -> NumericFacts:
+def _facts(context: ExplanationContext, path: str, item: CheckResult | ComparisonItem | None, *,
+           include_special_terms: bool = True) -> NumericFacts:
     facts = NumericFacts()
     confirmed = context.payload["confirmed"]
     for name, unit in CONTRACT_NUMBERS.items():
         facts.add(confirmed.get(name), unit)
     facts.add(confirmed.get("weekly_holiday_hours"), "시간")
+    if include_special_terms:
+        for term in confirmed["special_terms"]:
+            for unit, value in numeric_tokens(term):
+                if unit == "원":
+                    facts.add(value, unit)
+    for standard in context.payload["standards"]:
+        facts.add(standard["year"], "년")
+        facts.add(standard["minimum_hourly_wage"], "원")
+        facts.add(standard["weekly_holiday_min_hours"], "시간")
+        facts.add(standard["premium_min_workplace_size"], "인")
+        for value in standard["overtime_hours"].values():
+            facts.add(value, "시간")
+        for clock in standard["night_work_hours"].values():
+            facts.read(clock)
+        for rule in standard["break_time"]:
+            facts.add(rule["work_hours"], "시간")
+            facts.add(rule["break_minutes"], "분")
+            facts.add(rule.get("break_hours"), "시간")
     for name in ("work_start", "work_end", "pay_day"):
         if confirmed.get(name):
             facts.read(confirmed[name])
@@ -206,8 +261,6 @@ def _facts(context: ExplanationContext, path: str, row: CheckResult | Comparison
         if limit.item == "요일별 근무 시간":
             facts.read(limit.reason)
     facts.add(len(context.items), "건")
-    if confirmed["workplace_size"] in (None, "unknown"):
-        facts.add(5, "인")
     for check in context.result.checks:
         facts.read(check.description)
 
@@ -217,17 +270,22 @@ def _facts(context: ExplanationContext, path: str, row: CheckResult | Comparison
         for line in scenario.items:
             if totals_only and (line.item != "합계" or line.period != "monthly"):
                 continue
-            if isinstance(row, ComparisonItem) and (line.item != row.item or scenario.workplace_size != row.workplace_size):
+            if isinstance(item, ComparisonItem) and (line.item != item.item or scenario.workplace_size != item.workplace_size):
                 continue
             facts.add(line.amount, "원")
             if not totals_only:
                 facts.read(line.applied_condition)
     comparisons = [entry for entry in context.result.comparison if entry.item == "합계"] if totals_only else (
-        [row] if isinstance(row, ComparisonItem) else []
+        [item] if isinstance(item, ComparisonItem) else []
     )
     for entry in comparisons:
         for name in ("expected", "actual", "difference", "contract_expected", "contract_difference", "minimum_wage_difference"):
             facts.add(getattr(entry, name), "원")
+    if totals_only:
+        for cause in context.payload["cause_breakdown"]:
+            facts.add(cause["contract_shortfall"]["amount_won"], "원")
+            facts.add(cause["minimum_wage_gap"]["amount_won"], "원")
+            facts.add(cause["total_difference_won"], "원")
     return facts
 
 
@@ -235,49 +293,104 @@ def _has_wage_split(context: ExplanationContext) -> bool:
     return any(row.basis == "minimum_wage" for row in context.result.expected_pay)
 
 
+def _won_amounts(text: str) -> set[Decimal]:
+    return {amount for unit, amount in numeric_tokens(text) if unit == "원"}
+
+
+@dataclass(frozen=True)
+class SentenceRequirements:
+    amounts: frozenset[Decimal] = frozenset()
+    phrases: tuple[str, ...] = ()
+    conditional_minimum: bool = False
+
+    def missing(self, text: str) -> set[Decimal | str]:
+        missing = set(self.amounts - _won_amounts(text))
+        missing.update(phrase for phrase in self.phrases if phrase not in text)
+        if self.conditional_minimum and not MINIMUM_CONTEXT.search(text):
+            missing.add("최저임금 가정")
+        return missing
+
+    def fulfilled_by(self, text: str) -> set[Decimal | str]:
+        return (set(self.amounts) | set(self.phrases) |
+                ({"최저임금 가정"} if self.conditional_minimum else set())) - self.missing(text)
+
+
 class _ReviewGuard:
-    def __init__(self, context: ExplanationContext):
+    def __init__(self, context: ExplanationContext, *, include_special_terms: bool = True):
         self.context = context
+        self.include_special_terms = include_special_terms
         self.generated: set[str] = set()
         self.mixed: set[str] = set()
-        self.rejected = 0
+        self.rejections: list[tuple[str, str]] = []
 
     def text(self, candidate: str, default: str, path: str, *,
-             row: CheckResult | ComparisonItem | None = None, required: tuple[str, ...] = (),
+             row: CheckResult | ComparisonItem | None = None,
+             required: SentenceRequirements = SentenceRequirements(),
              max_sentences: int = 1) -> str:
-        facts = _facts(self.context, path, row)
+        facts = _facts(self.context, path, row, include_special_terms=self.include_special_terms)
         payslip = self.context.payload["confirmed"]["documents_provided"]["payslip"]
         parts = sentences(candidate)
-        good = [part for part in parts if is_safe(part, facts, payslip=payslip, workplace=self.context.workplace)]
-        self.rejected += len(parts) - len(good)
-        if not parts or len(parts) > max_sentences or any(value not in candidate for value in required):
-            self.rejected += len(good) or int(not parts)
+        if not parts:
+            if default:
+                self.rejections.append((path, "빈 문장"))
             return default
-        if len(good) != len(parts):
-            if good and not required and not path.startswith("messages."):
-                self.generated.add(path)
-                self.mixed.add(path)
-                return " ".join((*good, default))
+
+        kept = {}
+        for index, part in enumerate(parts):
+            issue = safety_issue(part, facts, payslip=payslip, workplace=self.context.workplace)
+            if issue or index >= max_sentences:
+                self.rejections.append((path, issue or "허용 문장 수 초과"))
+            else:
+                kept[index] = part
+
+        missing = required.missing(" ".join(kept.values()))
+        if missing and len(kept) == len(parts):
+            # Replace the sentence attempting the required content, keeping unrelated sentences.
+            index = max(kept, key=lambda i: (len(required.fulfilled_by(kept[i])), i))
+            kept.pop(index)
+            self.rejections.append((path, "필수 금액 또는 맥락 누락"))
+            missing = required.missing(" ".join(kept.values()))
+        if not kept:
             return default
         self.generated.add(path)
-        return candidate.strip()
+        if len(kept) == len(parts):
+            return candidate.strip()
+
+        self.mixed.add(path)
+        defaults = sentences(default)
+        # Use the default sentence that carries any missing facts before using positional fallbacks.
+        output = []
+        for index in range(min(len(parts), max_sentences)):
+            if index in kept:
+                output.append(kept[index])
+                continue
+            remaining = [part for part in defaults if part not in kept.values() and part not in output]
+            preferred = [part for part in remaining if required.fulfilled_by(part) & missing]
+            if preferred:
+                output.extend(preferred)
+                missing -= required.fulfilled_by(" ".join(preferred))
+            elif remaining:
+                positional = defaults[min(index, len(defaults) - 1)]
+                output.append(positional if positional in remaining else remaining[0])
+        if missing:
+            output.extend(part for part in defaults if part not in output and required.fulfilled_by(part) & missing)
+        return " ".join(output)
 
 
-def _cause_requirements(context: ExplanationContext) -> tuple[str, ...]:
-    cause = []
-    for row in context.payload["summary_facts"]:
-        if row["basis"] != "minimum_wage" or row["contract_difference"] is None:
-            continue
-        cause.extend((f"{row['contract_cause']} {won(Decimal(row['contract_difference']))}",
-                      f"최저임금 차이 {won(Decimal(row['minimum_wage_difference']))}"))
-    return ("최저임금 기준으로 계산하면", *cause) if cause else ()
+def _cause_amounts(context: ExplanationContext) -> frozenset[Decimal]:
+    return frozenset(
+        Decimal(amount)
+        for cause in context.payload["cause_breakdown"]
+        for amount in (cause["contract_shortfall"]["amount_won"], cause["minimum_wage_gap"]["amount_won"])
+    )
 
 
 def _checked_messages(guard: _ReviewGuard, candidate: EmployerMessages | None,
                       basic: EmployerMessages | None) -> EmployerMessages | None:
     if basic is None or candidate is None:
         return basic
-    requirements = ("사장님", *_cause_requirements(guard.context))
+    amounts = _cause_amounts(guard.context)
+    requirements = SentenceRequirements(amounts, ("사장님",), conditional_minimum=bool(amounts))
     return EmployerMessages(**{
         key: guard.text(getattr(candidate, key), getattr(basic, key), f"messages.{key}",
                         required=requirements, max_sentences=5)
@@ -288,17 +401,20 @@ def _checked_messages(guard: _ReviewGuard, candidate: EmployerMessages | None,
 def _validate_output(context: ExplanationContext, model: Explanation) -> Explained:
     basic = context.basic
     guard = _ReviewGuard(context)
-    summary_requirements = ()
-    if _has_wage_split(context) and any(unit == "원" for unit, _ in numeric_tokens(basic.summary.headline)):
-        summary_requirements = ("최저임금 기준으로 계산하면", *(
-            won(value) for unit, value in numeric_tokens(basic.summary.headline) if unit == "원"
-        ))
-    reason_requirements = _cause_requirements(context)
-    if context.payload["confirmed"]["workplace_size"] in (None, "unknown"):
-        reason_requirements += ("5인 이상", "5인 미만")
+    headline_amounts = frozenset(_won_amounts(basic.summary.headline)) if _has_wage_split(context) else frozenset()
+    cause_amounts = _cause_amounts(context)
+    expected_sizes = ("5인 이상", "5인 미만") if all(
+        size in basic.summary.reason for size in ("5인 이상", "5인 미만")
+    ) else ()
     summary = SummaryExplanation(
-        headline=guard.text(model.summary.headline, basic.summary.headline, "summary.headline", required=summary_requirements),
-        reason=guard.text(model.summary.reason, basic.summary.reason, "summary.reason", required=reason_requirements),
+        headline=guard.text(
+            model.summary.headline, basic.summary.headline, "summary.headline",
+            required=SentenceRequirements(headline_amounts, conditional_minimum=bool(headline_amounts)),
+        ),
+        reason=guard.text(
+            model.summary.reason, basic.summary.reason, "summary.reason",
+            required=SentenceRequirements(cause_amounts, expected_sizes), max_sentences=max(1, len(sentences(basic.summary.reason)) if expected_sizes else 1),
+        ),
     )
     by_id = {item.item_id: item for item in model.items}
     items = []
@@ -307,10 +423,9 @@ def _validate_output(context: ExplanationContext, model: Explanation) -> Explain
         if item is None:
             items.append(default)
             continue
-        requirements = ()
-        if isinstance(row, ComparisonItem) and row.item == "주휴수당" and row.contract_expected is not None:
-            requirements = (f"계약 시급 기준 {won(row.contract_expected)}",
-                            f"최저임금 기준으로 계산하면 {won(row.expected)}")
+        requirements = SentenceRequirements()
+        if isinstance(row, ComparisonItem) and row.item == "주휴수당" and None not in (row.contract_expected, row.expected):
+            requirements = SentenceRequirements(frozenset((row.contract_expected, row.expected)), conditional_minimum=True)
         prefix = f"items.{default.item_id}"
         items.append(ItemExplanation(
             item_id=default.item_id,
@@ -334,11 +449,15 @@ def _validate_output(context: ExplanationContext, model: Explanation) -> Explain
         detail = guard.text(term.user_context, default.user_context, f"{prefix}.user_context")
         terms.append(TermExplanation(term=term.term, general_meaning=meaning, user_context=detail))
     messages = _checked_messages(guard, model.messages, basic.messages)
-    return Explained(Explanation(summary=summary, items=items, terms=terms, messages=messages),
-                     frozenset(guard.generated), rejected_sentences=guard.rejected, mixed_fields=frozenset(guard.mixed))
+    return Explained(
+        Explanation(summary=summary, items=items, terms=terms, messages=messages),
+        frozenset(guard.generated), rejected_sentences=len(guard.rejections),
+        mixed_fields=frozenset(guard.mixed), rejection_reasons=tuple(guard.rejections),
+    )
 
 
-def _request(settings: ApiSettings, payload: dict, prompt_file: str, schema: type[BaseModel], client):
+def _request(settings: ApiSettings, payload: dict, prompt_file: str, schema: type[BaseModel], client, *,
+             retry_validation: bool = True):
     usage = []
     failures = 0
     if configuration_message(settings):
@@ -346,7 +465,7 @@ def _request(settings: ApiSettings, payload: dict, prompt_file: str, schema: typ
     prompt = (PROMPTS / prompt_file).read_text(encoding="utf-8")
     try:
         active = client if client is not None else ExtractionClient(settings)
-        for attempt in range(2):
+        for attempt in range(2 if retry_validation else 1):
             note = "\n이전 응답은 형식 검증에 실패했다. 정해진 JSON 필드를 모두 채운다." if attempt else ""
             try:
                 reply = active.read(prompt + note, json.dumps(payload, ensure_ascii=False), schema)
@@ -364,12 +483,15 @@ def _request(settings: ApiSettings, payload: dict, prompt_file: str, schema: typ
     return None, tuple(usage), failures
 
 
-def generate(context: ExplanationContext, settings: ApiSettings, *, client=None) -> Explained:
-    model, usage, failures = _request(settings, context.payload, f"explain_{EXPLAIN_VERSION}.txt", Explanation, client)
+def generate(context: ExplanationContext, settings: ApiSettings, *, client=None,
+             retry_validation: bool = True) -> Explained:
+    model, usage, failures = _request(
+        settings, context.payload, f"explain_{EXPLAIN_VERSION}.txt", Explanation, client,
+        retry_validation=retry_validation,
+    )
     if model is None:
         return Explained(context.basic, usage=usage, format_failures=failures)
-    checked = _validate_output(context, model)
-    return Explained(checked.content, checked.ai_fields, usage, checked.rejected_sentences, failures, checked.mixed_fields)
+    return replace(_validate_output(context, model), usage=usage, format_failures=failures)
 
 
 def rewrite(context: ExplanationContext, settings: ApiSettings, tone: Literal["정중하게", "간단하게"],
@@ -379,16 +501,16 @@ def rewrite(context: ExplanationContext, settings: ApiSettings, tone: Literal["�
                              concise=tone == "간단하게" or "짧고 간결하게" in hints)
     if basic is None:
         return Rewritten(None)
-    payload = {key: context.payload[key] for key in ("summary_facts", "review_items")}
+    payload = {key: context.payload[key] for key in ("summary_facts", "cause_breakdown", "standards", "review_items")}
     payload["confirmed"] = {key: value for key, value in context.payload["confirmed"].items() if key != "special_terms"}
     if "work_schedule" in context.payload:
         payload["work_schedule"] = context.payload["work_schedule"]
     payload["style"] = tone
     payload["style_hints"] = hints
     model, usage, _ = _request(settings, payload, f"rewrite_{REWRITE_VERSION}.txt", EmployerMessages, client)
-    guard = _ReviewGuard(context)
+    guard = _ReviewGuard(context, include_special_terms=False)
     messages = _checked_messages(guard, model, basic)
-    return Rewritten(messages, frozenset(guard.generated), usage, guard.rejected)
+    return Rewritten(messages, frozenset(guard.generated), usage, len(guard.rejections))
 
 
 def saved_sample(name: str, context: ExplanationContext) -> Explained:
