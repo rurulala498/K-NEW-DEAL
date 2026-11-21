@@ -31,6 +31,18 @@
     "value": 4.345,
     "verified": false
   },
+  "weekly_holiday_hours": {
+    "value": {"full_time_weekly": 40, "max_hours": 8},
+    "verified": false
+  },
+  "overtime_hours": {
+    "value": {"daily": 8, "weekly": 40},
+    "verified": false
+  },
+  "comparison_tolerance_won": {
+    "value": 100,
+    "verified": true
+  },
   "part_time_overtime": {
     "value": null,
     "verified": false,
