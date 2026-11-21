@@ -3,11 +3,13 @@ from decimal import Decimal
 import json
 from pathlib import Path
 
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from engine import run_engine
 from llm import explain
 from llm.client import ApiSettings, ExtractionRequestError, ModelReply, TokenUsage
+from llm.guards import NumericFacts, is_safe, private_text
 from rag.store import RagStore, default_store
 from schemas.explanation import EmployerMessages, Explanation
 from schemas.extraction import SpecialTerm
@@ -43,6 +45,47 @@ def ai_example(report):
     return payload
 
 
+@pytest.mark.parametrize("text", [
+    "임금을 확인해 보세요.",
+    "임금은 매달 지급돼요.",
+    "정해진 지급일에 맞춰 주실 수 있을까요?",
+    "전액을 지급해 주셨는지 확인 부탁드려요.",
+    "장소는 계약서에 적혀 있어요.",
+    "한도를 확인해 보세요.",
+    "조정이 필요한지 여쭤보고 싶어요.",
+    "장부를 확인해 보세요.",
+])
+def test_common_words_are_not_treated_as_names(text):
+    assert not private_text(text, workplace=None)
+    assert is_safe(text, NumericFacts(), payslip=True, workplace=None)
+
+
+@pytest.mark.parametrize(("text", "workplace"), [
+    ("대표자 홍길동", None),
+    ("근로자: 김철수", None),
+    ("성명: 홍길동", None),
+    ("010-1234-5678", None),
+    ("900101-1234567", None),
+    ("비공개식당에서 일해요.", "비공개 식당"),
+    ("example@example.com", None),
+    ("계좌 123-456-789", None),
+    ("123456789", None),
+    ("https://example.com", None),
+])
+def test_labelled_names_and_known_identifiers_are_still_private(text, workplace):
+    assert private_text(text, workplace=workplace)
+
+
+def test_generated_next_action_with_wage_word_is_kept():
+    report = context()
+    payload = ai_example(report)
+    action = "임금을 확인해 보세요."
+    payload["items"][0]["next_action"] = action
+    result = explain.generate(report, SETTINGS, client=FakeClient(payload))
+    assert result.content.items[0].next_action == action
+    assert "items.item_1.next_action" in result.ai_fields
+
+
 def test_context_sends_only_confirmed_facts_and_relevant_public_sources():
     extraction = confirmed_sample("review_case")
     extraction.contract.workplace.value = "비공개 식당"
@@ -52,14 +95,17 @@ def test_context_sends_only_confirmed_facts_and_relevant_public_sources():
     extraction.extra_answers.pay_period_rule.value = "보내지 않을 정산 메모"
     extraction.contract.special_terms.value = [SpecialTerm.model_validate({
         "text": {"value": text, "confidence": "high"}, "type": {"value": "other", "confidence": "high"},
-    }) for text in ("근무복을 반납합니다.", "예금주: 홍길동, 010-1234-9876", "홍길동에게 연락합니다.", "비공개식당 근무")]
+    }) for text in (
+        "근무복을 반납합니다.", "중도 퇴사 시 임금을 공제한다",
+        "예금주: 홍길동, 010-1234-9876", "대표자 홍길동", "비공개식당 근무",
+    )]
     data = explain.build_context(run_engine(extraction), extraction, RagStore(laws=default_store().laws)).payload
     serialized = json.dumps(data, ensure_ascii=False)
     assert set(data["confirmed"]) == {
         "hourly_wage", "daily_hours", "weekly_hours", "work_days", "work_start", "work_end",
         "break_minutes", "pay_day", "special_terms", "workplace_size", "documents_provided", "weekly_holiday_hours",
     }
-    assert data["confirmed"]["special_terms"] == ["근무복을 반납합니다."]
+    assert data["confirmed"]["special_terms"] == ["근무복을 반납합니다.", "중도 퇴사 시 임금을 공제한다"]
     assert data["confirmed"]["pay_day"] is None and "dictionary" not in data
     for private in ("비공개 식당", "비공개식당", "010-1234-9876", "홍길동", "전체 원문", "보내지 않을", "source_text"):
         assert private not in serialized

@@ -1,10 +1,13 @@
+from datetime import time
+
 from config import load_standards
 from schemas import EngineResult, ExtractionResult
-from schemas.engine import Limitation, PayBasis
+from schemas.engine import Limitation, PayBasis, ScheduleDetail
 
 from .checks import check_contract, diagnose
 from .comparison import compare_pay
 from .pay import calculate_pay
+from .schedule import hours_text, measure_shift, schedule_hours, valid_schedule_days
 
 
 def _without_calculation(reason: str) -> EngineResult:
@@ -36,6 +39,28 @@ def run_engine(extraction: ExtractionResult, year: int = 2026) -> EngineResult:
         ))
 
     limitations = []
+    details = []
+    shifts = [measure_shift(entry) for entry in extraction.contract.work_schedule.value or []]
+    if valid_schedule_days(shifts):
+        window = standards["night_work_hours"]["value"]
+        start, end = time.fromisoformat(window["start"]), time.fromisoformat(window["end"])
+        for shift in shifts:
+            night, upper = shift.night(start, end)
+            details.append(ScheduleDetail(
+                days=list(shift.days), work_hours=shift.net_hours,
+                break_minutes=None if shift.break_seconds is None else shift.break_seconds / 60,
+                night_hours=night, night_is_upper_bound=upper,
+            ))
+        total = schedule_hours(shifts)
+        weekly_hours = extraction.contract.weekly_hours.value
+        if total is not None and weekly_hours is not None and total != weekly_hours:
+            limitations.append(Limitation(
+                item="요일별 근무 시간",
+                reason=f"요일별 시간을 더하면 주 {hours_text(total)}시간이에요. 계약서의 주 소정근로시간 "
+                       f"{hours_text(weekly_hours)}시간과 달라요. 기본급과 주휴수당은 주 소정근로시간을 사용해요.",
+            ))
+    elif shifts:
+        limitations.append(Limitation(item="요일별 근무 시간", reason="근무 시각, 휴게 구간 또는 중복 요일을 확인해 주세요."))
     bases: tuple[PayBasis, ...] = ("contract",)
     wage = extraction.contract.hourly_wage.value
     if wage is not None and wage < standards["minimum_hourly_wage"]["value"]:
@@ -59,4 +84,5 @@ def run_engine(extraction: ExtractionResult, year: int = 2026) -> EngineResult:
         expected_pay=expected_pay,
         comparison=comparison,
         limitations=unique_limitations,
+        schedule_details=details,
     )

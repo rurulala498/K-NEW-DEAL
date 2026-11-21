@@ -24,6 +24,11 @@ PAY_BASIS = {
 }
 
 
+CARD_TERM_ORDER = {
+    "필수 기재사항": ("required_terms", ("근로조건 명시", "근로계약서")),
+    "합계": ("wage_payment", ("임금 지급 원칙", "임금명세서")),
+}
+
 TERM_BASIS = {
     "주휴수당": ("weekly_holiday_pay",),
     "소정근로시간": ("working_hours", "required_terms", "part_time", "weekly_holiday_pay"),

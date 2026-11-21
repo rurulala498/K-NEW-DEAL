@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ValidationError
 
 from app.format import ReviewItem, review_items, review_rows, won
+from engine.schedule import WEEKDAYS, hours_text, weekday
 from llm.client import ApiSettings, ExtractionClient, ExtractionRequestError, TokenUsage, configuration_message, read_settings
 from llm.guards import NumericFacts, is_safe, numeric_tokens, private_text, safe_style_request, sentences
 from llm.templates import basic_explanation, cause_label, default_messages
@@ -17,20 +18,19 @@ from schemas import EngineResult, ExtractionResult
 from schemas.engine import CheckResult, ComparisonItem
 from schemas.explanation import EmployerMessages, Explanation, ItemExplanation, SummaryExplanation, TermExplanation
 
-EXPLAIN_VERSION = "v1"
+EXPLAIN_VERSION = "v2"
 REWRITE_VERSION = "v1"
 PROMPTS = Path(__file__).with_name("prompts")
 SAMPLE_REPORTS = Path(__file__).resolve().parents[1] / "data" / "samples"
 SAMPLE_NAMES = ("normal_case", "review_case")
 CONTRACT_NUMBERS = {"hourly_wage": "원", "daily_hours": "시간", "weekly_hours": "시간", "break_minutes": "분"}
-WEEKDAYS = "월화수목금토일"
 PAY_DAY = re.compile(
     r"(?:매월|월|매달|매주|주)?\s*(?:[1-9]|[12]\d|3[01])일"
     r"|(?:매주|주)?\s*[월화수목금토일](?:요일)?|(?:매월|월|매달)?\s*(?:말일|마지막 날)"
 )
 SAFE_LIMIT_ITEMS = {
     "급여 계산", "기본급", "주휴수당", "연장 가산", "야간 가산", "합계",
-    "단시간 근로자 연장 가산", "지급액 대조", "최저임금 기준 예상 급여",
+    "단시간 근로자 연장 가산", "지급액 대조", "최저임금 기준 예상 급여", "요일별 근무 시간",
 }
 
 
@@ -73,8 +73,12 @@ def _confirmed_values(extraction: ExtractionResult, result: EngineResult) -> dic
     values = {name: fields[name]["value"] for name in (*CONTRACT_NUMBERS, "work_start", "work_end")}
     day = contract.pay_day.value
     values["pay_day"] = day if day and (PAY_DAY.fullmatch(day) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", day)) else None
-    values["work_days"] = [day for day in contract.work_days.value or []
-                           if day[0] in WEEKDAYS and day[1:] in ("", "요일")]
+    if contract.work_schedule.value:
+        for key in ("work_start", "work_end", "break_minutes"):
+            values.pop(key)
+    else:
+        values["work_days"] = [day for day in contract.work_days.value or []
+                               if day[0] in WEEKDAYS and day[1:] in ("", "요일")]
     values["special_terms"] = [
         text for term in contract.special_terms.value or [] if (text := term.text.value)
         and len(text) <= 300 and "\n" not in text and not private_text(text, contract.workplace.value)
@@ -89,6 +93,21 @@ def _confirmed_values(extraction: ExtractionResult, result: EngineResult) -> dic
         if holiday is not None:
             values["weekly_holiday_hours"] = f"{(holiday / wage).normalize():f}"
     return values
+
+
+def _schedule_values(extraction: ExtractionResult, result: EngineResult) -> list[dict]:
+    details = {tuple(row.days): row for row in result.schedule_details}
+    output = []
+    for entry in extraction.contract.work_schedule.value or []:
+        days = [weekday(day) for day in entry.days.value or [] if weekday(day) in WEEKDAYS]
+        fields = entry.model_dump(mode="json")
+        row = {"days": days, **{name: fields[name]["value"] for name in (
+            "start", "end", "break_start", "break_end", "break_minutes",
+        )}}
+        if detail := details.get(tuple(days)):
+            row.update(detail.model_dump(mode="json", exclude={"days"}))
+        output.append(row)
+    return output
 
 
 def _term_candidates(result: EngineResult, store: RagStore, keys: list[str]) -> list[str]:
@@ -157,6 +176,8 @@ def build_context(result: EngineResult, extraction: ExtractionResult, store: Rag
         "dictionary": dictionary,
         "laws": laws,
     }
+    if extraction.contract.work_schedule.value:
+        payload["work_schedule"] = _schedule_values(extraction, result)
     basic = basic_explanation(result, items, rows, payload)
     if not dictionary:
         payload.pop("dictionary")
@@ -167,11 +188,23 @@ def _facts(context: ExplanationContext, path: str, row: CheckResult | Comparison
     facts = NumericFacts()
     confirmed = context.payload["confirmed"]
     for name, unit in CONTRACT_NUMBERS.items():
-        facts.add(confirmed[name], unit)
+        facts.add(confirmed.get(name), unit)
     facts.add(confirmed.get("weekly_holiday_hours"), "시간")
     for name in ("work_start", "work_end", "pay_day"):
-        if confirmed[name]:
+        if confirmed.get(name):
             facts.read(confirmed[name])
+    for row in context.payload.get("work_schedule", ()):
+        for name in ("start", "end", "break_start", "break_end"):
+            if row.get(name):
+                facts.read(row[name])
+        for name, unit in (("work_hours", "시간"), ("night_hours", "시간"), ("break_minutes", "분")):
+            if row.get(name) is not None:
+                value = Decimal(row[name])
+                facts.add(value, unit)
+                facts.add(hours_text(value), unit)
+    for limit in context.result.limitations:
+        if limit.item == "요일별 근무 시간":
+            facts.read(limit.reason)
     facts.add(len(context.items), "건")
     if confirmed["workplace_size"] in (None, "unknown"):
         facts.add(5, "인")
@@ -348,6 +381,8 @@ def rewrite(context: ExplanationContext, settings: ApiSettings, tone: Literal["�
         return Rewritten(None)
     payload = {key: context.payload[key] for key in ("summary_facts", "review_items")}
     payload["confirmed"] = {key: value for key, value in context.payload["confirmed"].items() if key != "special_terms"}
+    if "work_schedule" in context.payload:
+        payload["work_schedule"] = context.payload["work_schedule"]
     payload["style"] = tone
     payload["style_hints"] = hints
     model, usage, _ = _request(settings, payload, f"rewrite_{REWRITE_VERSION}.txt", EmployerMessages, client)

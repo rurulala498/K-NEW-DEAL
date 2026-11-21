@@ -90,14 +90,34 @@ def _item(item_id: str, item: ReviewItem, row: CheckResult | ComparisonItem, key
     return ItemExplanation(item_id=item_id, easy_explanation=explanation, next_action=action, basis_keys=keys)
 
 
-def _term_contexts(confirmed: dict, result: EngineResult) -> dict[str, str]:
+def _short_clock(clock: str) -> str:
+    return clock[:-3] if clock.endswith(":00") and len(clock) == 8 else clock
+
+
+def _schedule_breaks(schedule: list[dict]) -> str:
+    groups = []
+    for row in schedule:
+        if not row["days"]:
+            continue
+        label = "·".join(row["days"])
+        start, end = row.get("break_start"), row.get("break_end")
+        if start and end:
+            groups.append(f"{label} {_short_clock(start)}~{_short_clock(end)}")
+        elif row.get("break_minutes") is not None:
+            groups.append(f"{label} {number(Decimal(row['break_minutes']))}분")
+    return ", ".join(groups)
+
+
+def _term_contexts(confirmed: dict, result: EngineResult, schedule: list[dict]) -> dict[str, str]:
     weekly = confirmed.get("weekly_hours")
     wage = confirmed.get("hourly_wage")
     minutes = confirmed.get("break_minutes")
     contexts = {}
     if weekly is not None:
         contexts["소정근로시간"] = f"확인한 계약은 주 {number(Decimal(weekly))}시간이에요."
-    if minutes is not None:
+    if breaks := _schedule_breaks(schedule):
+        contexts["휴게시간"] = f"확인한 계약서의 요일별 휴게는 {breaks}예요."
+    elif minutes is not None:
         contexts["휴게시간"] = f"확인한 계약서에는 {minutes}분으로 적혀 있어요."
     if wage is not None:
         contexts["최저임금"] = f"확인한 계약 시급은 {won(Decimal(wage))}이에요."
@@ -119,7 +139,9 @@ def _term_contexts(confirmed: dict, result: EngineResult) -> dict[str, str]:
     overtime = rows.get("연장 가산")
     if overtime is not None and overtime.amount > 0:
         hours = re.match(r"max\(([^,]+), ([^)]+)\) × ", overtime.formula)
-        if hours:
+        if schedule:
+            contexts["연장근로"] = f"{prefix}요일별 초과 시간을 반영한 계약 기준 주 연장 가산은 {won(overtime.amount)}이에요."
+        elif hours:
             daily, weekly_excess = (number(Decimal(value)) for value in hours.groups())
             contexts["연장근로"] = (
                 f"{prefix}하루 기준 초과분 {daily}시간과 주 기준 초과분 {weekly_excess}시간 중 큰 값으로 계산한 "
@@ -127,17 +149,27 @@ def _term_contexts(confirmed: dict, result: EngineResult) -> dict[str, str]:
             )
     night = rows.get("야간 가산")
     if night is not None and night.amount > 0:
-        hours = night.formula.partition(" × ")[0]
         limit = "최대 " if "상한" in night.applied_condition else ""
-        contexts["야간근로"] = (
-            f"{prefix}근무일마다 야간 {limit}{hours}시간에 대해 계약 기준 주 야간 가산을 "
-            f"{limit}{won(night.amount)}으로 계산했어요."
-        )
+        if schedule:
+            hours = ", ".join(
+                f"{'·'.join(row['days'])} {'최대 ' if row.get('night_is_upper_bound') else ''}"
+                f"{number(Decimal(row['night_hours']))}시간"
+                for row in schedule if row.get("night_hours") and Decimal(row["night_hours"]) > 0
+            )
+            if hours:
+                contexts["야간근로"] = f"{prefix}야간근로 {hours}에 대해 계약 기준 주 야간 가산을 {limit}{won(night.amount)}으로 계산했어요."
+        else:
+            hours = night.formula.partition(" × ")[0]
+            contexts["야간근로"] = (
+                f"{prefix}근무일마다 야간 {limit}{hours}시간에 대해 계약 기준 주 야간 가산을 "
+                f"{limit}{won(night.amount)}으로 계산했어요."
+            )
     return contexts
 
 
-def _terms(names: list[str], dictionary: dict[str, str], confirmed: dict, result: EngineResult) -> list[TermExplanation]:
-    contexts = _term_contexts(confirmed, result)
+def _terms(names: list[str], dictionary: dict[str, str], confirmed: dict, result: EngineResult,
+           schedule: list[dict]) -> list[TermExplanation]:
+    contexts = _term_contexts(confirmed, result, schedule)
     return [
         TermExplanation(term=name, general_meaning=dictionary.get(name) or TERM_MEANINGS.get(name),
                         user_context=contexts.get(name, ""))
@@ -186,6 +218,6 @@ def basic_explanation(
         summary=_summary(result, items, confirmed),
         items=[_item(record["item_id"], item, row, record["basis_keys"])
                for record, item, row in zip(payload["review_items"], items, rows)],
-        terms=_terms(payload["term_candidates"], payload["dictionary"], confirmed, result),
+        terms=_terms(payload["term_candidates"], payload["dictionary"], confirmed, result, payload.get("work_schedule", [])),
         messages=default_messages(result, items, rows, confirmed),
     )

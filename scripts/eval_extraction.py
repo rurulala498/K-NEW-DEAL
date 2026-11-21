@@ -15,10 +15,14 @@ from llm.extract import DocumentExtraction, extract_documents
 FIXTURES = ROOT / "tests" / "fixtures"
 DOCS = FIXTURES / "docs"
 CASES = ("normal", "review", "tricky")
+EVAL_CASES = (*CASES, "schedule")
 MISSING = object()
 
 
 def read_fixture_pair(case: str) -> DocumentTexts:
+    if case == "schedule":
+        path = DOCS / "schedule_contract.pdf"
+        return DocumentTexts(read_document(path.name, path.read_bytes()))
     return DocumentTexts(*[
         read_document(path.name, path.read_bytes())
         for role in ("contract", "payslip")
@@ -27,13 +31,16 @@ def read_fixture_pair(case: str) -> DocumentTexts:
 
 
 def expected_fields(case: str) -> DocumentExtraction:
-    if case == "tricky":
-        path = DOCS / "tricky_expected.json"
+    if case in ("tricky", "schedule"):
+        path = DOCS / f"{case}_expected.json"
         expected = json.loads(path.read_text(encoding="utf-8"))
     else:
         path = FIXTURES / f"{case}_case.json"
         expected = json.loads(path.read_text(encoding="utf-8"))["extraction"]
-    return DocumentExtraction.model_validate(expected)
+    model = DocumentExtraction.model_validate(expected)
+    if not model.contract.work_schedule.value and (entries := model.contract.schedule_entries()):
+        model.contract.work_schedule.value = entries
+    return model
 
 
 def field_values(node, path=""):
@@ -42,10 +49,11 @@ def field_values(node, path=""):
         yield path, node
     elif "confidence" in node:
         value = node["value"]
-        if path in ("contract.special_terms", "payslip.items"):
+        if path in ("contract.special_terms", "payslip.items", "contract.work_schedule"):
             yield f"{path}.개수", None if value is None else len(value)
             for index, row in enumerate(value or [], start=1):
-                yield from field_values(row, f"{path}.{index}")
+                record = {key: cell for key, cell in row.items() if key != "source_text"}
+                yield from field_values(record, f"{path}.{index}")
         else:
             yield path, value
     else:
@@ -54,8 +62,8 @@ def field_values(node, path=""):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="가상 서류 3종의 필드 일치율과 OpenAI 토큰 사용량을 측정합니다.")
-    parser.add_argument("--case", choices=CASES, help="지정한 가상 사례만 측정합니다.")
+    parser = argparse.ArgumentParser(description="가상 서류의 필드 일치율과 OpenAI 토큰 사용량을 측정합니다.")
+    parser.add_argument("--case", choices=EVAL_CASES, help="지정한 가상 사례만 측정합니다.")
     args = parser.parse_args()
     settings = read_settings()
     notice = configuration_message(settings)
@@ -65,7 +73,7 @@ def main() -> int:
 
     scores = defaultdict(lambda: [0, 0])
     failed = False
-    for case in (args.case,) if args.case else CASES:
+    for case in (args.case,) if args.case else EVAL_CASES:
         truth = dict(field_values(expected_fields(case).model_dump()))
         try:
             outcome = extract_documents(read_fixture_pair(case), settings)

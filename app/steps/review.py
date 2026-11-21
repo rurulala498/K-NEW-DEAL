@@ -5,16 +5,17 @@ from pydantic import ValidationError
 
 from app.components.documents import document_preview
 from app.components.fields import confidence_label, editable_rows, edited_field, low_rows, text_field, text_fields
+from app.components.schedule import edit_schedule
 from app.format import WORKPLACE_LABELS
 from engine.comparison import PAYSLIP_CATEGORIES
 from llm.documents import DocumentTexts
+from llm.extract import workplace_size_hint
 from schemas import ExtractionResult
-from schemas.extraction import DocumentsProvided
+from schemas.extraction import Contract, DocumentsProvided
 
 CORE_FIELDS = {
     "hourly_wage": "시급 (원)", "weekly_hours": "주 소정근로시간",
-    "work_days": "근무 요일 (쉼표로 구분)", "work_start": "근무 시작 (HH:MM)",
-    "work_end": "근무 종료 (HH:MM)", "break_minutes": "휴게시간 (분)", "pay_day": "지급일",
+    "pay_day": "지급일",
 }
 OTHER_FIELDS = {
     "daily_hours": "하루 소정근로시간",
@@ -44,19 +45,10 @@ def _has_low_rows(field):
 
 def _core_inputs(contract):
     values = {}
-    groups = (("hourly_wage", "weekly_hours"), ("work_days",))
-    for group in groups:
-        for name, column in zip(group, st.columns(len(group))):
-            with column:
-                values[name] = text_field(
-                    contract[name], CORE_FIELDS[name], f"review-contract-{name}",
-                    is_work_days=name == "work_days",
-                )
-    st.markdown("**근무 시간**")
-    for group in (("work_start", "work_end"), ("break_minutes", "pay_day")):
-        for name, column in zip(group, st.columns(2)):
-            with column:
-                values[name] = text_field(contract[name], CORE_FIELDS[name], f"review-contract-{name}")
+    for name, column in zip(("hourly_wage", "weekly_hours"), st.columns(2)):
+        with column:
+            values[name] = text_field(contract[name], CORE_FIELDS[name], f"review-contract-{name}")
+    values["pay_day"] = text_field(contract["pay_day"], CORE_FIELDS["pay_day"], "review-contract-pay_day")
     return values
 
 
@@ -107,6 +99,8 @@ def _answers(extra):
         index=sizes.index(size_field["value"] or "unknown"),
         format_func=WORKPLACE_LABELS.__getitem__, key="review-workplace-size",
     )
+    if hint := workplace_size_hint(size_field.get("source_text") or ""):
+        st.caption(f"계약서에 상시근로자 {hint[0]:,}명으로 적혀 있어요.")
     return {
         "workplace_size": edited_field(size_field, size),
         "pay_period_rule": text_field(extra["pay_period_rule"], "임금 정산 기간", "review-pay-period"),
@@ -143,18 +137,21 @@ def review_step(sample_name: str | None, sample: dict, *, texts: DocumentTexts |
             with st.container(border=True, key="documents-card"):
                 document_preview(sample_name, sample, texts, payslip_provided=provided.payslip)
         with editor:
+            st.subheader("추출값 확인")
+            contract = _core_inputs(sample["contract"])
+            schedule, valid_schedule = edit_schedule(
+                Contract.model_validate(sample["contract"]), contract["weekly_hours"]["value"],
+            )
             with st.form("review-form", border=True):
-                st.subheader("추출값 확인")
-                contract = _core_inputs(sample["contract"])
                 remaining, payslip = _additional_fields(
                     sample["contract"], sample["payslip"] if provided.payslip else None,
                 )
                 extra_answers = _answers(sample["extra_answers"])
-                submitted = st.form_submit_button("결과 보기", type="primary", width="stretch")
+                submitted = st.form_submit_button("결과 보기", type="primary", width="stretch", disabled=not valid_schedule)
                 if submitted:
                     try:
                         return ExtractionResult.model_validate({
-                            "contract": {**contract, **remaining},
+                            "contract": {**schedule.model_dump(mode="json"), **contract, **remaining},
                             "payslip": payslip if provided.payslip else sample["payslip"],
                             "extra_answers": extra_answers, "user_confirmed": True,
                             "documents_provided": provided,

@@ -3,7 +3,7 @@ from html import escape
 import streamlit as st
 
 from llm.explain import Explained
-from rag.basis_map import TERM_BASIS
+from rag.basis_map import CARD_TERM_ORDER, TERM_BASIS
 from rag.store import RagStore
 from schemas.explanation import TermExplanation
 from schemas.rag import LawRecord
@@ -76,7 +76,23 @@ def _card_terms(store: RagStore, keys: tuple[str, ...], title: str,
             ))
     if direct and direct_name not in matches:
         matches[direct_name] = TermExplanation(term=direct_name, general_meaning=direct.easy_explanation, user_context="")
-    ordered = sorted(matches, key=lambda name: name != direct_name)
+    if title not in CARD_TERM_ORDER:
+        ordered = sorted(matches, key=lambda name: name != direct_name)
+    else:
+        primary, preferred = CARD_TERM_ORDER[title]
+        for name in preferred:
+            if (official := store.get_term(name)) and official.term not in matches:
+                matches[official.term] = TermExplanation(
+                    term=official.term, general_meaning=official.easy_explanation, user_context="",
+                )
+
+        def rank(name: str) -> tuple[int, int]:
+            official = store.get_term(name)
+            if name in preferred:
+                return 0, preferred.index(name)
+            return (1, 0) if official and primary in official.related_basis_keys else (2, 0)
+
+        ordered = sorted(matches, key=rank)
     return [matches[name] for name in ordered[:2]]
 
 

@@ -1,4 +1,6 @@
 from schemas.engine import CheckResult
+
+from .schedule import HOUR, WEEKDAYS, hours_text, measure_shift, weekday
 from schemas.extraction import Contract
 
 REQUIRED_TERMS = {
@@ -38,7 +40,28 @@ def _check_minimum_wage(contract, minimum):
     return diagnose("최저임금", "minimum_wage", f"계약 시급이 기준 {minimum:,}원 이상입니다.")
 
 
+def _check_schedule_breaks(entries, rules):
+    problems = []
+    for index, entry in enumerate(entries, 1):
+        days = "·".join(day for value in entry.days.value or [] if (day := weekday(value)) in WEEKDAYS)
+        label = days or f"{index}행"
+        shift = measure_shift(entry)
+        if shift is None or not days:
+            problems.append(f"{label} 근무 요일·시각과 휴게 구간을 확인해 주세요.")
+            continue
+        hours = shift.net_hours if shift.net_hours is not None else shift.duration / HOUR
+        minimum = max((rule["break_minutes"] for rule in rules if hours >= rule["work_hours"]), default=0)
+        if minimum and shift.break_seconds is None:
+            problems.append(f"{label} 휴게시간을 확인해 주세요.")
+        elif minimum and shift.break_seconds < minimum * 60:
+            problems.append(f"{label} 휴게 {hours_text(shift.break_seconds / 60)}분은 기준 {minimum}분보다 짧아요.")
+    description = " ".join(problems) if problems else "요일별 근무표의 휴게시간이 기준 충족 또는 기준 미만 근무에 해당해요."
+    return diagnose("휴게시간", "break_time", description, needs_review=bool(problems))
+
+
 def _check_break_time(contract, rules):
+    if contract.work_schedule.value:
+        return _check_schedule_breaks(contract.work_schedule.value, rules)
     hours = contract.daily_hours.value
     minutes = contract.break_minutes.value
     if hours is None:

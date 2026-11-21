@@ -4,9 +4,9 @@ from decimal import ROUND_HALF_UP, Decimal
 from schemas.engine import ExpectedPayItem, ExpectedPayScenario, Limitation, PayBasis
 from schemas.extraction import Contract, KnownWorkplaceSize
 
+from .schedule import DAY, HOUR, hours_text, measure_shift, night_overlap, schedule_hours, seconds, valid_schedule_days
+
 ZERO = Decimal(0)
-SECONDS_PER_HOUR = 3600
-SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR
 
 BASE_PAY = "기본급"
 HOLIDAY_PAY = "주휴수당"
@@ -76,33 +76,18 @@ def _overtime_pay(contract, wage, rate, threshold, standards, year, limitations)
     )
 
 
-def _seconds(clock: time):
-    return (
-        Decimal(clock.hour * SECONDS_PER_HOUR + clock.minute * 60 + clock.second)
-        + Decimal(clock.microsecond) / 1_000_000
-    )
-
-
 def _night_overlap(start, end, night_start, night_end):
-    shift_start, shift_end = _seconds(start), _seconds(end)
+    shift_start, shift_end = seconds(start), seconds(end)
     if shift_end < shift_start:
-        shift_end += SECONDS_PER_DAY
-    window_start, window_end = _seconds(night_start), _seconds(night_end)
-    if window_end < window_start:
-        window_end += SECONDS_PER_DAY
-    overlap = sum(
-        (
-            max(ZERO, min(shift_end, window_end + offset) - max(shift_start, window_start + offset))
-            for offset in (-SECONDS_PER_DAY, 0, SECONDS_PER_DAY)
-        ),
-        ZERO,
-    )
-    return overlap, shift_end - shift_start
+        shift_end += DAY
+    return night_overlap(shift_start, shift_end, night_start, night_end), shift_end - shift_start
 
 
 def _night_pay(contract, wage, rate, threshold, standards, year, limitations):
-    start, end = contract.work_start.value, contract.work_end.value
-    days = contract.work_days.value
+    entries = contract.schedule_entries()
+    shift = entries[0] if entries else None
+    start, end = (shift.start.value, shift.end.value) if shift else (None, None)
+    days = shift.days.value if shift else None
     if wage is None or start is None or end is None or days is None or start == end:
         limitations.append(Limitation(item=NIGHT_PAY, reason="시급, 근무 시각과 주 근무일수를 확인해 주세요."))
         return None
@@ -113,7 +98,7 @@ def _night_pay(contract, wage, rate, threshold, standards, year, limitations):
         start, end, time.fromisoformat(window["start"]), time.fromisoformat(window["end"]),
     )
     condition = f"{threshold}인 이상, {window['start']}~{window['end']} 근로"
-    break_minutes = contract.break_minutes.value
+    break_minutes = shift.break_minutes.value
     if overlap > 0 and days:
         if break_minutes is None or (break_minutes > 0 and overlap < duration):
             condition += ", 휴게시간대 미확인에 따른 상한"
@@ -124,12 +109,59 @@ def _night_pay(contract, wage, rate, threshold, standards, year, limitations):
             overlap = min(overlap, max(ZERO, duration - break_minutes * 60))
     if not rule["verified"] or not standards["premium_rate"]["verified"]:
         limitations.append(Limitation(item=NIGHT_PAY, reason="기준 확인 필요"))
-    hours = overlap / SECONDS_PER_HOUR
+    hours = overlap / HOUR
     return _weekly(
         NIGHT_PAY, hours * wage * rate * len(days),
         f"{hours.normalize():f} × {wage} × {rate} × {len(days)}",
         condition, year,
     )
+
+
+def _scheduled_overtime(shifts, wage, rate, threshold, standards, year, limitations):
+    total = schedule_hours(shifts)
+    if wage is None or total is None:
+        limitations.append(Limitation(item=OVERTIME_PAY, reason="요일별 근무 시간과 휴게시간을 확인해 주세요."))
+        return None
+    rule = standards["overtime_hours"]
+    daily_limit, weekly_limit = rule["value"]["daily"], rule["value"]["weekly"]
+    daily = [(shift, max(ZERO, shift.net_hours - daily_limit)) for shift in shifts]
+    daily_total = sum((hours * len(shift.days) for shift, hours in daily), ZERO)
+    weekly_excess = max(ZERO, total - weekly_limit)
+    details = " + ".join(
+        f"{shift.label} 각 {hours_text(hours)}시간 × {len(shift.days)}일" if len(shift.days) > 1
+        else f"{shift.label} {hours_text(hours)}시간"
+        for shift, hours in daily
+    )
+    if not rule["verified"] or not standards["premium_rate"]["verified"]:
+        limitations.append(Limitation(item=OVERTIME_PAY, reason="기준 확인 필요"))
+    return _weekly(
+        OVERTIME_PAY, max(daily_total, weekly_excess) * wage * rate,
+        f"max({details}, 주 {hours_text(weekly_excess)}시간) × {wage:,}원 × {rate}",
+        f"{threshold}인 이상, 일 {daily_limit}시간과 주 {weekly_limit}시간 초과분 중 큰 값", year,
+    )
+
+
+def _scheduled_night(shifts, wage, rate, threshold, standards, year, limitations):
+    if wage is None or not valid_schedule_days(shifts):
+        limitations.append(Limitation(item=NIGHT_PAY, reason="요일별 근무 시각과 휴게 구간을 확인해 주세요."))
+        return None
+    rule = standards["night_work_hours"]
+    window = rule["value"]
+    start, end = time.fromisoformat(window["start"]), time.fromisoformat(window["end"])
+    condition = f"{threshold}인 이상, {window['start']}~{window['end']} 근로"
+    entries = [(shift, *shift.night(start, end)) for shift in shifts]
+    uncertain = [shift.label for shift, _, upper in entries if upper]
+    if uncertain:
+        condition += ", 휴게시간대 미확인에 따른 상한"
+        limitations.append(Limitation(item=NIGHT_PAY, reason=f"{', '.join(uncertain)} 야간 구간의 휴게시간을 확인해 주세요."))
+    if not rule["verified"] or not standards["premium_rate"]["verified"]:
+        limitations.append(Limitation(item=NIGHT_PAY, reason="기준 확인 필요"))
+    formula = " + ".join(
+        f"{day} {hours_text(hours)}시간 × {wage:,}원 × {rate}"
+        for shift, hours, _ in entries if hours > ZERO for day in shift.days
+    ) or "0"
+    total_hours = sum((hours * len(shift.days) for shift, hours, _ in entries), ZERO)
+    return _weekly(NIGHT_PAY, total_hours * wage * rate, formula, condition, year)
 
 
 def calculate_pay(
@@ -145,10 +177,17 @@ def calculate_pay(
     ]
     if workplace_size == "5_or_more":
         rate = standards["premium_rate"]["value"]
-        weekly_rows.extend([
-            _overtime_pay(contract, wage, rate, threshold, standards, year, limitations),
-            _night_pay(contract, wage, rate, threshold, standards, year, limitations),
-        ])
+        if contract.work_schedule.value:
+            shifts = [measure_shift(entry) for entry in contract.work_schedule.value]
+            weekly_rows.extend([
+                _scheduled_overtime(shifts, wage, rate, threshold, standards, year, limitations),
+                _scheduled_night(shifts, wage, rate, threshold, standards, year, limitations),
+            ])
+        else:
+            weekly_rows.extend([
+                _overtime_pay(contract, wage, rate, threshold, standards, year, limitations),
+                _night_pay(contract, wage, rate, threshold, standards, year, limitations),
+            ])
         if not standards["part_time_overtime"]["verified"]:
             limitations.append(Limitation(item="단시간 근로자 연장 가산", reason="기준 확인 필요"))
     else:
@@ -173,11 +212,15 @@ def calculate_pay(
     for row in weekly:
         if basis == "minimum_wage":
             row.applied_condition = f"최저임금 시급 {wage:,}원 적용, {row.applied_condition}"
+        weekly_formula = (
+            f"({row.formula})" if contract.work_schedule.value and row.item in (OVERTIME_PAY, NIGHT_PAY)
+            else f"{row.amount.normalize():f}"
+        )
         monthly.append(ExpectedPayItem(
             item=row.item,
             period="monthly",
             amount=(row.amount * factor).quantize(Decimal("1"), rounding=ROUND_HALF_UP),
-            formula=f"{row.amount.normalize():f} × {factor} (원 단위 반올림)",
+            formula=f"{weekly_formula} × {factor} (원 단위 반올림)",
             applied_condition=f"{row.applied_condition}, 월 환산 {factor}주",
             standards_year=year,
         ))

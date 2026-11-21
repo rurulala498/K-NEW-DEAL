@@ -35,6 +35,9 @@ def _sources(node):
                 yield node["source_text"], node["confidence"]
             yield from _sources(node["value"])
         else:
+            if "days" in node and node.get("source_text"):
+                cells = [cell for cell in node.values() if isinstance(cell, dict) and cell.get("value") is not None]
+                yield node["source_text"], "low" if any(cell["confidence"] == "low" for cell in cells) else "high"
             for child in node.values():
                 yield from _sources(child)
     elif isinstance(node, list):

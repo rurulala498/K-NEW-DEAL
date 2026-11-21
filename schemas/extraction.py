@@ -24,6 +24,16 @@ class SpecialTerm(BaseModel):
     type: ExtractedField[Text]
 
 
+class ScheduleEntry(BaseModel):
+    days: ExtractedField[list[Text]]
+    start: ExtractedField[time]
+    end: ExtractedField[time]
+    break_start: ExtractedField[time]
+    break_end: ExtractedField[time]
+    break_minutes: ExtractedField[NonNegativeInt]
+    source_text: str | None = None
+
+
 class Contract(BaseModel):
     hourly_wage: ExtractedField[NonNegativeNumber]
     daily_hours: ExtractedField[NonNegativeNumber]
@@ -41,6 +51,36 @@ class Contract(BaseModel):
     workplace: ExtractedField[Text]
     job_description: ExtractedField[Text]
     special_terms: ExtractedField[list[SpecialTerm]]
+    work_schedule: ExtractedField[list[ScheduleEntry]] = Field(
+        default_factory=lambda: ExtractedField(value=None, confidence="low")
+    )
+
+    def schedule_entries(self) -> list[ScheduleEntry]:
+        if self.work_schedule.value:
+            return self.work_schedule.value
+        if not any(field.value is not None for field in (
+            self.work_days, self.work_start, self.work_end, self.break_minutes,
+        )):
+            return []
+        return [ScheduleEntry(
+            days=self.work_days, start=self.work_start, end=self.work_end,
+            break_start=ExtractedField(value=None, confidence="low"),
+            break_end=ExtractedField(value=None, confidence="low"),
+            break_minutes=self.break_minutes,
+        )]
+
+    def sync_legacy_schedule(self) -> None:
+        entries = self.work_schedule.value or []
+        if len(entries) == 1:
+            entry = entries[0]
+            self.work_days, self.work_start, self.work_end = entry.days, entry.start, entry.end
+            self.break_minutes = entry.break_minutes
+            return
+        days = list(dict.fromkeys(day for entry in entries for day in entry.days.value or []))
+        self.work_days = ExtractedField(value=days or None, confidence=self.work_schedule.confidence)
+        self.work_start = ExtractedField(value=None, confidence="low")
+        self.work_end = ExtractedField(value=None, confidence="low")
+        self.break_minutes = ExtractedField(value=None, confidence="low")
 
 
 class PayslipItem(BaseModel):

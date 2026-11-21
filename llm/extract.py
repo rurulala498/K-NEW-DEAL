@@ -16,10 +16,14 @@ from llm.documents import DocumentTexts
 from llm.samples import sample_texts
 from schemas.extraction import Contract, DocumentsProvided, ExtractionResult, ExtractedField, Payslip
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 PROMPT_DIR = Path(__file__).with_name("prompts")
 NUMBER = re.compile(r"(?<!\d)[+-]?\d+(?:,\d{3})*(?:\.\d+)?(?!\d)")
 TERM_TYPES = {"penalty", "wage_deduction", "other"}
+HEADCOUNT = re.compile(
+    r"상시\s*근로자(?:\s*수)?(?:는|은)?\s*[:：=]?\s*(\d{1,3}(?:,\d{3})*|\d+)\s*(?:명|인)"
+    r"(?!\s*(?:이상|이하|미만|초과|[~～-]))"
+)
 
 
 class DocumentExtraction(BaseModel):
@@ -64,7 +68,9 @@ def _numeric_value_in_quote(value: object, quote: str) -> bool:
 
 def _audit_fields(model: BaseModel, original: str):
     for name in type(model).model_fields:
-        field: ExtractedField = getattr(model, name)
+        field = getattr(model, name)
+        if not isinstance(field, ExtractedField):
+            continue
         value, quote = field.value, field.source_text
         if value is None:
             field.source_text = None
@@ -83,6 +89,25 @@ def _audit_fields(model: BaseModel, original: str):
                 field.value = None
         elif quote not in original or not _numeric_value_in_quote(value, quote):
             field.confidence = "low"
+
+
+def workplace_size_hint(text: str) -> tuple[int, str] | None:
+    counts = {int(match[1].replace(",", "")): match[0] for match in HEADCOUNT.finditer(text)}
+    if len(counts) != 1:
+        return None
+    return next(iter(counts.items()))
+
+
+def _audit_schedule(contract: Contract, original: str):
+    for row in contract.work_schedule.value or []:
+        quote = row.source_text
+        if not quote or quote not in original:
+            row.source_text = None
+            continue
+        for name in type(row).model_fields:
+            cell = getattr(row, name)
+            if isinstance(cell, ExtractedField) and cell.value is not None and not cell.source_text:
+                cell.source_text = quote
 
 
 def _audit_terms(contract: Contract, original: str):
@@ -144,9 +169,17 @@ def extract_documents(
         except ValidationError:
             continue
         if texts.contract is not None:
+            _audit_schedule(fields.contract, texts.contract)
             _audit_fields(fields.contract, texts.contract)
             _audit_terms(fields.contract, texts.contract)
+            if fields.contract.work_schedule.value:
+                fields.contract.sync_legacy_schedule()
             result.contract = fields.contract
+            if hint := workplace_size_hint(texts.contract):
+                count, quote = hint
+                result.extra_answers.workplace_size = ExtractedField(
+                    value="5_or_more" if count >= 5 else "under_5", confidence="high", source_text=quote,
+                )
         if texts.payslip is not None:
             _audit_fields(fields.payslip, texts.payslip)
             _audit_categories(fields.payslip)

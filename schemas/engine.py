@@ -52,8 +52,17 @@ class Limitation(BaseModel):
     reason: str
 
 
+class ScheduleDetail(BaseModel):
+    days: list[str]
+    work_hours: Amount | None
+    break_minutes: Amount | None
+    night_hours: Amount
+    night_is_upper_bound: bool
+
+
 class EngineResult(BaseModel):
     checks: list[CheckResult]
     expected_pay: list[ExpectedPayScenario]
     comparison: list[ComparisonItem]
     limitations: list[Limitation]
+    schedule_details: list[ScheduleDetail] = Field(default_factory=list)

@@ -1,0 +1,189 @@
+{
+  "contract": {
+    "contract_start": {
+      "value": "2026-11-01",
+      "confidence": "high",
+      "source_text": "계약 시작일: 2026-11-01"
+    },
+    "contract_end": {
+      "value": "2026-11-30",
+      "confidence": "high",
+      "source_text": "계약 종료일: 2026-11-30"
+    },
+    "pay_day": {
+      "value": "매월 10일",
+      "confidence": "high",
+      "source_text": "지급일: 매월 10일"
+    },
+    "pay_method": {
+      "value": "계좌이체",
+      "confidence": "high",
+      "source_text": "지급 방법: 계좌이체"
+    },
+    "holidays": {
+      "value": "일요일",
+      "confidence": "high",
+      "source_text": "휴일: 일요일"
+    },
+    "annual_leave": {
+      "value": "적용 기준에 따름",
+      "confidence": "high",
+      "source_text": "연차유급휴가: 적용 기준에 따름"
+    },
+    "workplace": {
+      "value": "가상 시간표 매장",
+      "confidence": "high",
+      "source_text": "근무 장소: 가상 시간표 매장"
+    },
+    "job_description": {
+      "value": "매장 정리",
+      "confidence": "high",
+      "source_text": "업무 내용: 매장 정리"
+    },
+    "special_terms": {
+      "value": [],
+      "confidence": "high",
+      "source_text": "특약 없음"
+    },
+    "hourly_wage": {
+      "value": 11500,
+      "confidence": "high",
+      "source_text": "계약 시급 11,500원"
+    },
+    "daily_hours": {
+      "value": 5,
+      "confidence": "high",
+      "source_text": "하루 소정근로시간 5시간"
+    },
+    "weekly_hours": {
+      "value": 20,
+      "confidence": "high",
+      "source_text": "주 소정근로시간 20시간"
+    },
+    "work_days": {
+      "value": [
+        "월",
+        "수",
+        "목",
+        "금"
+      ],
+      "confidence": "high",
+      "source_text": null
+    },
+    "work_start": {
+      "value": null,
+      "confidence": "low",
+      "source_text": null
+    },
+    "work_end": {
+      "value": null,
+      "confidence": "low",
+      "source_text": null
+    },
+    "break_minutes": {
+      "value": null,
+      "confidence": "low",
+      "source_text": null
+    },
+    "work_schedule": {
+      "value": [
+        {
+          "days": {
+            "value": [
+              "월",
+              "수",
+              "목"
+            ],
+            "confidence": "high",
+            "source_text": "월·수·목 16:00~21:30 휴게 18:00~18:30"
+          },
+          "start": {
+            "value": "16:00",
+            "confidence": "high",
+            "source_text": "월·수·목 16:00~21:30 휴게 18:00~18:30"
+          },
+          "end": {
+            "value": "21:30",
+            "confidence": "high",
+            "source_text": "월·수·목 16:00~21:30 휴게 18:00~18:30"
+          },
+          "break_start": {
+            "value": "18:00",
+            "confidence": "high",
+            "source_text": "월·수·목 16:00~21:30 휴게 18:00~18:30"
+          },
+          "break_end": {
+            "value": "18:30",
+            "confidence": "high",
+            "source_text": "월·수·목 16:00~21:30 휴게 18:00~18:30"
+          },
+          "break_minutes": {
+            "value": null,
+            "confidence": "low",
+            "source_text": null
+          },
+          "source_text": "월·수·목 16:00~21:30 휴게 18:00~18:30"
+        },
+        {
+          "days": {
+            "value": [
+              "금"
+            ],
+            "confidence": "high",
+            "source_text": "금 19:00~익일 00:30 휴게 22:15~22:45"
+          },
+          "start": {
+            "value": "19:00",
+            "confidence": "high",
+            "source_text": "금 19:00~익일 00:30 휴게 22:15~22:45"
+          },
+          "end": {
+            "value": "00:30",
+            "confidence": "high",
+            "source_text": "금 19:00~익일 00:30 휴게 22:15~22:45"
+          },
+          "break_start": {
+            "value": "22:15",
+            "confidence": "high",
+            "source_text": "금 19:00~익일 00:30 휴게 22:15~22:45"
+          },
+          "break_end": {
+            "value": "22:45",
+            "confidence": "high",
+            "source_text": "금 19:00~익일 00:30 휴게 22:15~22:45"
+          },
+          "break_minutes": {
+            "value": null,
+            "confidence": "low",
+            "source_text": null
+          },
+          "source_text": "금 19:00~익일 00:30 휴게 22:15~22:45"
+        }
+      ],
+      "confidence": "high",
+      "source_text": null
+    }
+  },
+  "payslip": {
+    "pay_period_start": {
+      "value": null,
+      "confidence": "low",
+      "source_text": null
+    },
+    "pay_period_end": {
+      "value": null,
+      "confidence": "low",
+      "source_text": null
+    },
+    "items": {
+      "value": null,
+      "confidence": "low",
+      "source_text": null
+    },
+    "total_paid": {
+      "value": null,
+      "confidence": "low",
+      "source_text": null
+    }
+  }
+}
