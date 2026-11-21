@@ -59,10 +59,14 @@ def main():
                 st.session_state.contract_text = draft.texts.contract
             else:
                 st.session_state.pop("contract_text", None)
-            st.session_state.update(step=3, confirmed=confirmed, result=run_engine(confirmed), scroll_on_show=True)
+            st.session_state.update(
+                step=3, confirmed=confirmed, result=run_engine(confirmed),
+                result_sample=draft.sample_name, scroll_on_show=True,
+            )
             st.rerun()
     else:
-        if show_result(st.session_state.result, st.session_state.confirmed, store):
+        if show_result(st.session_state.result, st.session_state.confirmed, store,
+                       sample_name=st.session_state.get("result_sample")):
             st.session_state.update(step=1, adding_payslip=True, scroll_on_show=True)
             st.rerun()
 

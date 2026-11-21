@@ -24,6 +24,17 @@ PAY_BASIS = {
 }
 
 
+TERM_BASIS = {
+    "주휴수당": ("weekly_holiday_pay",),
+    "소정근로시간": ("working_hours", "required_terms", "part_time", "weekly_holiday_pay"),
+    "기본급": ("minimum_wage", "wage_payment"),
+    "휴게시간": ("break_time",),
+    "최저임금": ("minimum_wage", "minimum_wage_2026"),
+    "연장근로": ("overtime_night", "overtime_limit"),
+    "야간근로": ("overtime_night",),
+}
+
+
 def check_basis_keys(check: CheckResult, contract: Contract) -> tuple[str, ...]:
     keys = []
     if check.item == "사업장 규모":

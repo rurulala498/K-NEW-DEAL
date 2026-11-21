@@ -1,6 +1,6 @@
 from config import load_standards
 from schemas import EngineResult, ExtractionResult
-from schemas.engine import Limitation
+from schemas.engine import Limitation, PayBasis
 
 from .checks import check_contract, diagnose
 from .comparison import compare_pay
@@ -36,9 +36,18 @@ def run_engine(extraction: ExtractionResult, year: int = 2026) -> EngineResult:
         ))
 
     limitations = []
+    bases: tuple[PayBasis, ...] = ("contract",)
+    wage = extraction.contract.hourly_wage.value
+    if wage is not None and wage < standards["minimum_hourly_wage"]["value"]:
+        bases = ("contract", "minimum_wage")
+        limitations.append(Limitation(
+            item="최저임금 기준 예상 급여",
+            reason="수습 감액, 최저임금 적용 제외, 최저임금에 포함되는 수당이 있으면 금액이 달라질 수 있어요.",
+        ))
     expected_pay = [
-        calculate_pay(extraction.contract, scenario_size, standards, year, limitations)
+        calculate_pay(extraction.contract, scenario_size, standards, year, limitations, basis=basis)
         for scenario_size in sizes
+        for basis in bases
     ]
     comparison = compare_pay(
         expected_pay, extraction.payslip if extraction.documents_provided.payslip else None,

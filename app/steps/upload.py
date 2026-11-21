@@ -37,11 +37,11 @@ def _manual_text(upload) -> str | None:
         return ""
 
 
-def _draft(outcome: ExtractionOutcome, texts: DocumentTexts) -> ReviewDraft:
+def _draft(outcome: ExtractionOutcome, texts: DocumentTexts, *, sample_name: str | None = None) -> ReviewDraft:
     notice = None
     if outcome.validation_failed:
         notice = "AI가 추출 결과의 형식을 맞추지 못했어요. 원문을 보며 빈칸에 직접 입력하거나 서류를 다시 읽을 수 있어요."
-    return ReviewDraft(outcome.result.model_dump(mode="json"), texts=texts, notice=notice)
+    return ReviewDraft(outcome.result.model_dump(mode="json"), sample_name=sample_name, texts=texts, notice=notice)
 
 
 def _intro():
@@ -50,7 +50,8 @@ def _intro():
         st.markdown("근로계약서로 계약 내용을 점검하고 받을 금액을 계산해요. 급여명세서가 있으면 받은 금액도 비교할 수 있어요.")
         st.caption(
             "주민등록번호와 계좌번호 같은 개인정보는 가려 주세요. "
-            "AI로 읽을 때는 추출할 텍스트를 OpenAI API로 보내고, 앱은 서류를 디스크에 저장하지 않아요."
+            "서류를 읽을 때는 추출할 텍스트를, 결과를 설명할 때는 필요한 숫자와 확인값을 OpenAI API로 보내요. "
+            "앱은 서류를 디스크에 저장하지 않아요."
         )
         if not st.session_state.get("consented"):
             st.button("동의하고 시작하기", key="consent", type="primary",
@@ -153,6 +154,7 @@ def upload_step(*, adding_payslip: bool = False) -> ReviewDraft | None:
             provided = DocumentsProvided(contract=texts.contract is not None, payslip=texts.payslip is not None)
             return ReviewDraft(
                 blank_result(provided).model_dump(mode="json"), texts=texts,
+                sample_name=st.session_state.get("ai-sample-choice", "normal_case") if failed_sample else None,
                 notice="원문을 보며 빈칸에 직접 입력해 주세요.",
             )
 
@@ -184,7 +186,7 @@ def upload_step(*, adding_payslip: bool = False) -> ReviewDraft | None:
                          key="read-ai-sample", disabled=bool(config_notice)):
                 try:
                     with st.spinner("가상 샘플 서류를 읽고 있어요…"):
-                        return _draft(extract_sample(ai_choice, settings), sample_texts(ai_choice))
+                        return _draft(extract_sample(ai_choice, settings), sample_texts(ai_choice), sample_name=ai_choice)
                 except ExtractionRequestError as problem:
                     st.session_state.extraction_error = ("sample", str(problem))
                     st.rerun()

@@ -7,6 +7,7 @@ from schemas import EngineResult, ExtractionResult
 from schemas.engine import CheckResult, ComparisonItem, ExpectedPayScenario
 
 WORKPLACE_LABELS = {"5_or_more": "5인 이상", "under_5": "5인 미만", "unknown": "모름"}
+PAY_BASIS_LABELS = {"contract": "계약 시급 기준", "minimum_wage": "최저임금 기준"}
 REQUIRED_TERMS = {
     "임금": "hourly_wage",
     "소정근로시간": "weekly_hours",
@@ -16,6 +17,15 @@ REQUIRED_TERMS = {
     "업무 내용": "job_description",
 }
 PREMIUMS = {"연장 가산", "야간 가산"}
+
+
+class WorkplacePay(NamedTuple):
+    contract: ExpectedPayScenario
+    minimum_wage: ExpectedPayScenario | None
+
+    @property
+    def for_comparison(self) -> ExpectedPayScenario:
+        return self.minimum_wage or self.contract
 
 
 class ReviewItem(NamedTuple):
@@ -63,6 +73,12 @@ def monthly_total(scenario: ExpectedPayScenario) -> Decimal | None:
     return next((row.amount for row in scenario.items if row.period == "monthly" and row.item == "합계"), None)
 
 
+def pay_by_workplace(scenarios: list[ExpectedPayScenario]) -> list[WorkplacePay]:
+    minimum = {scenario.workplace_size: scenario for scenario in scenarios if scenario.basis == "minimum_wage"}
+    return [WorkplacePay(scenario, minimum.get(scenario.workplace_size))
+            for scenario in scenarios if scenario.basis == "contract"]
+
+
 def review_rows(rows: list[ComparisonItem]) -> list[ComparisonItem]:
     flagged = [row for row in rows if row.status == "needs_review"]
     details = [row for row in flagged if row.item != "합계"]
@@ -85,12 +101,13 @@ def _pay_formula(row: ComparisonItem, scenario: ExpectedPayScenario | None, extr
     monthly = next((line for line in scenario.items if line.item == row.item and line.period == "monthly"), None)
     weekly = next((line for line in scenario.items if line.item == row.item and line.period == "weekly"), None)
     wage = extraction.contract.hourly_wage.value
-    if row.item == "주휴수당" and monthly and weekly and wage:
+    if row.basis == "contract" and row.item == "주휴수당" and monthly and weekly and wage:
         # Show the effective hours using the already-calculated weekly amount.
         hours = number(weekly.amount / wage)
         return f"{won(wage)} × {hours}시간 = 주 {won(weekly.amount)} → 월 {won(monthly.amount)}"
     if monthly:
-        return f"{monthly.formula} = 월 {won(monthly.amount)}"
+        context = "최저임금 기준으로 계산하면 " if row.basis == "minimum_wage" else ""
+        return f"{context}{monthly.formula} = 월 {won(monthly.amount)}"
     return None
 
 
@@ -110,11 +127,13 @@ def review_items(result: EngineResult, extraction: ExtractionResult) -> list[Rev
         )
         for check in result.checks if check.status == "needs_review"
     ]
-    scenarios = {scenario.workplace_size: scenario for scenario in result.expected_pay}
+    scenarios = {(scenario.workplace_size, scenario.basis): scenario for scenario in result.expected_pay}
+    has_size_choices = len({size for size, _ in scenarios}) > 1
     for row in review_rows(result.comparison):
-        sized_label = WORKPLACE_LABELS.get(row.workplace_size) if len(scenarios) > 1 else None
+        sized_label = WORKPLACE_LABELS.get(row.workplace_size) if has_size_choices else None
+        scenario = scenarios.get((row.workplace_size, row.basis))
         items.append(ReviewItem(
-            row.item, comparison_description(row), _pay_formula(row, scenarios.get(row.workplace_size), extraction),
+            row.item, comparison_description(row), _pay_formula(row, scenario, extraction),
             sized_label, pay_basis_keys(row.item),
         ))
     return items

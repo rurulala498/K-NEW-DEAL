@@ -66,13 +66,24 @@ def compare_pay(
             item="지급액 대조", reason="급여명세서를 올리지 않아 실제 지급액과 비교하지 않았습니다.",
         ))
 
+    minimum_scenarios = {
+        scenario.workplace_size: scenario for scenario in scenarios if scenario.basis == "minimum_wage"
+    }
     comparison = []
-    for scenario in scenarios:
+    for contract in scenarios:
+        if contract.basis != "contract":
+            continue
+        minimum_wage = minimum_scenarios.get(contract.workplace_size)
+        scenario = minimum_wage or contract
+        contract_amounts = {}
+        if minimum_wage is not None:
+            contract_amounts = {row.item: row.amount for row in contract.items if row.period == "monthly"}
         for row in scenario.items:
             if row.period != "monthly":
                 continue
             actual = paid.get(row.item)
             difference = None if actual is None else row.amount - actual
+            contract_amount = contract_amounts.get(row.item)
             if payslip is None:
                 status = "not_compared"
             else:
@@ -83,6 +94,8 @@ def compare_pay(
                         item=row.item, reason="급여명세서에서 해당 지급액을 확인할 수 없습니다.",
                     ))
                 status = "needs_review" if difference is None or difference > tolerance else "ok"
+            contract_difference = None if contract_amount is None or actual is None else contract_amount - actual
+            minimum_wage_difference = None if contract_amount is None else row.amount - contract_amount
             comparison.append(ComparisonItem(
                 item=row.item,
                 expected=row.amount,
@@ -90,5 +103,9 @@ def compare_pay(
                 difference=difference,
                 status=status,
                 workplace_size=scenario.workplace_size,
+                basis=scenario.basis,
+                contract_expected=contract_amount,
+                contract_difference=contract_difference,
+                minimum_wage_difference=minimum_wage_difference,
             ))
     return comparison

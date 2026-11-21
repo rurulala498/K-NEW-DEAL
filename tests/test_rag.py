@@ -1,11 +1,14 @@
 from html import escape
 import json
+import re
 from pathlib import Path
 
 import pytest
 from streamlit.testing.v1 import AppTest
 
 from app.components.evidence import evidence_markup
+from llm import explain
+from scripts.preview_explanations import confirmed_sample
 from app.steps import upload
 from engine import run_engine
 from llm.client import ApiSettings, read_settings
@@ -161,8 +164,51 @@ def test_empty_data_renders_preparation_chips_and_hides_help(monkeypatch):
     content = "\n".join(element.proto.body for element in app.get("html"))
 
     assert "근거 조문 준비 중" in content
-    assert "용어 설명 준비 중" in content
+    assert "용어 설명 준비 중" not in content
+    assert "<summary>주휴수당 뜻 보기</summary>" in content
+    assert "<summary>최저임금 뜻 보기</summary>" in content
+    assert "<summary>휴게시간 뜻 보기</summary>" in content
     assert not any(heading.value == "더 확인하고 싶다면" for heading in app.subheader)
+
+
+def test_card_terms_follow_basis_and_put_the_card_name_first():
+    store = rag.RagStore()
+    extracted = confirmed_sample("review_case")
+    context = explain.build_context(run_engine(extracted), extracted, store)
+    report = explain.Explained(context.basic)
+    for title, keys, expected in (
+        ("주휴수당", ("weekly_holiday_pay", "part_time"), ["주휴수당", "소정근로시간"]),
+        ("최저임금", ("minimum_wage", "minimum_wage_2026"), ["최저임금", "기본급"]),
+        ("휴게시간", ("break_time",), ["휴게시간"]),
+        ("필수 기재사항", ("weekly_holiday_pay", "required_terms", "minimum_wage"), ["주휴수당", "최저임금"]),
+        ("특약", ("penalty_clause",), []),
+    ):
+        html = evidence_markup(store, keys, title, report)
+        assert re.findall(r"<summary>([^<]+) 뜻 보기</summary>", html) == expected
+        assert "용어 설명 준비 중" not in html
+    assert "근거 조문 준비 중" in evidence_markup(store, ("penalty_clause",), "특약", report)
+
+
+def test_card_uses_dictionary_meaning_source_and_explanation_context():
+    store = rag.load_store(RAG_FIXTURES)
+    extracted = confirmed_sample("review_case")
+    context = explain.build_context(run_engine(extracted), extracted, store)
+    term = next(term for term in context.basic.terms if term.term == "테스트용 주휴수당")
+    term.general_meaning = "이 설명은 사전 뜻으로 대체돼요."
+    report = explain.Explained(context.basic, frozenset({"terms.테스트용 주휴수당.user_context"}))
+    term.user_context = "테스트용 내 상황 문장이에요."
+    html = evidence_markup(store, ("weekly_holiday_pay",), "주휴수당", report)
+
+    assert "<summary>테스트용 주휴수당 뜻 보기</summary>" in html
+    assert store.terms[0].easy_explanation in html
+    assert "이 설명은 사전 뜻으로 대체돼요." not in html
+    assert "https://example.com/test/term" in html
+    assert "테스트용 내 상황 문장이에요." in html
+    assert "뜻: 용어 사전 · 내 상황: AI 설명" in html
+    assert "<small>기본 설명</small> ·" not in html
+    term.user_context = ""
+    without_context = evidence_markup(store, ("weekly_holiday_pay",), "주휴수당", report)
+    assert "<small>뜻: 용어 사전</small>" in without_context
 
 
 def test_result_uses_fixture_terms_laws_and_help_channels(monkeypatch):

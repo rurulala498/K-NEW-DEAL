@@ -1,7 +1,7 @@
 from datetime import time
 from decimal import ROUND_HALF_UP, Decimal
 
-from schemas.engine import ExpectedPayItem, ExpectedPayScenario, Limitation
+from schemas.engine import ExpectedPayItem, ExpectedPayScenario, Limitation, PayBasis
 from schemas.extraction import Contract, KnownWorkplaceSize
 
 ZERO = Decimal(0)
@@ -52,8 +52,7 @@ def _holiday_pay(wage, hours, standards, year, limitations):
     )
 
 
-def _overtime_pay(contract, rate, threshold, standards, year, limitations):
-    wage = contract.hourly_wage.value
+def _overtime_pay(contract, wage, rate, threshold, standards, year, limitations):
     daily = contract.daily_hours.value
     weekly = contract.weekly_hours.value
     days = contract.work_days.value
@@ -101,8 +100,7 @@ def _night_overlap(start, end, night_start, night_end):
     return overlap, shift_end - shift_start
 
 
-def _night_pay(contract, rate, threshold, standards, year, limitations):
-    wage = contract.hourly_wage.value
+def _night_pay(contract, wage, rate, threshold, standards, year, limitations):
     start, end = contract.work_start.value, contract.work_end.value
     days = contract.work_days.value
     if wage is None or start is None or end is None or days is None or start == end:
@@ -136,9 +134,9 @@ def _night_pay(contract, rate, threshold, standards, year, limitations):
 
 def calculate_pay(
     contract: Contract, workplace_size: KnownWorkplaceSize, standards: dict,
-    year: int, limitations: list[Limitation],
+    year: int, limitations: list[Limitation], *, basis: PayBasis = "contract",
 ) -> ExpectedPayScenario:
-    wage = contract.hourly_wage.value
+    wage = standards["minimum_hourly_wage"]["value"] if basis == "minimum_wage" else contract.hourly_wage.value
     hours = contract.weekly_hours.value
     threshold = standards["premium_min_workplace_size"]["value"]
     weekly_rows = [
@@ -148,8 +146,8 @@ def calculate_pay(
     if workplace_size == "5_or_more":
         rate = standards["premium_rate"]["value"]
         weekly_rows.extend([
-            _overtime_pay(contract, rate, threshold, standards, year, limitations),
-            _night_pay(contract, rate, threshold, standards, year, limitations),
+            _overtime_pay(contract, wage, rate, threshold, standards, year, limitations),
+            _night_pay(contract, wage, rate, threshold, standards, year, limitations),
         ])
         if not standards["part_time_overtime"]["verified"]:
             limitations.append(Limitation(item="단시간 근로자 연장 가산", reason="기준 확인 필요"))
@@ -173,6 +171,8 @@ def calculate_pay(
     factor = month_rule["value"]
     monthly = []
     for row in weekly:
+        if basis == "minimum_wage":
+            row.applied_condition = f"최저임금 시급 {wage:,}원 적용, {row.applied_condition}"
         monthly.append(ExpectedPayItem(
             item=row.item,
             period="monthly",
@@ -183,4 +183,4 @@ def calculate_pay(
         ))
         if not month_rule["verified"]:
             limitations.append(Limitation(item=f"{row.item}(월)", reason="기준 확인 필요"))
-    return ExpectedPayScenario(workplace_size=workplace_size, items=weekly + monthly)
+    return ExpectedPayScenario(workplace_size=workplace_size, items=weekly + monthly, basis=basis)

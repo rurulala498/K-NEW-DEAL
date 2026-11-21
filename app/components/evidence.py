@@ -2,8 +2,11 @@ from html import escape
 
 import streamlit as st
 
+from llm.explain import Explained
+from rag.basis_map import TERM_BASIS
 from rag.store import RagStore
-from schemas.rag import LawRecord, TermRecord
+from schemas.explanation import TermExplanation
+from schemas.rag import LawRecord
 
 
 def _source(url: str, checked_date) -> str:
@@ -22,15 +25,62 @@ def _law_content(law: LawRecord) -> str:
     )
 
 
-def _term_content(term: TermRecord) -> str:
+def _term_markup(term: TermExplanation, store: RagStore, explanation: Explained | None) -> str:
+    official = store.get_term(term.term)
+    prefix = f"terms.{term.term}."
+    ai_fields = explanation.ai_fields if explanation else frozenset()
+    lines, labels = [], []
+    meaning = official.easy_explanation if official else term.general_meaning
+    if meaning:
+        lines.append(f"<p>{escape(meaning)}</p>")
+        origin = "용어 사전" if official else (
+            "AI 설명" if f"{prefix}general_meaning" in ai_fields else "기본 설명"
+        )
+        labels.append(f"뜻: {origin}")
+    if situation := term.user_context.strip():
+        lines.append(f"<p>{escape(situation)}</p>")
+        origin = "AI 설명" if f"{prefix}user_context" in ai_fields else "기본 설명"
+        labels.append(f"내 상황: {origin}")
+    if official:
+        lines.append(_source(official.source_url, official.checked_date))
+    if not labels:
+        return ""
+
+    name = official.term if official else term.term
+    footer = f'<p class="rag-source"><small>{" · ".join(labels)}</small></p>'
     return (
-        f'<details class="term-chip"><summary>{escape(term.term)} 뜻 보기</summary>'
-        f'<div class="rag-detail"><p>{escape(term.easy_explanation)}</p>'
-        f'{_source(term.source_url, term.checked_date)}</div></details>'
+        f'<details class="term-chip"><summary>{escape(name)} 뜻 보기</summary>'
+        f'<div class="rag-detail">{"".join(lines)}{footer}</div></details>'
     )
 
 
-def evidence_markup(store: RagStore, keys: tuple[str, ...], title: str) -> str:
+def _card_terms(store: RagStore, keys: tuple[str, ...], title: str,
+                explanation: Explained | None) -> list[TermExplanation]:
+    direct = store.get_term(title)
+    direct_name = direct.term if direct else title
+    available = set(keys)
+    matches = {}
+    for term in explanation.content.terms if explanation else ():
+        official = store.get_term(term.term)
+        name = official.term if official else term.term
+        related = official.related_basis_keys if official else TERM_BASIS.get(name, ())
+        if (name == direct_name or available.intersection(related)) and (
+            official or term.general_meaning or term.user_context.strip()
+        ):
+            matches.setdefault(name, term)
+
+    for key in keys:
+        for official in store.get_terms(key):
+            matches.setdefault(official.term, TermExplanation(
+                term=official.term, general_meaning=official.easy_explanation, user_context="",
+            ))
+    if direct and direct_name not in matches:
+        matches[direct_name] = TermExplanation(term=direct_name, general_meaning=direct.easy_explanation, user_context="")
+    ordered = sorted(matches, key=lambda name: name != direct_name)
+    return [matches[name] for name in ordered[:2]]
+
+
+def evidence_markup(store: RagStore, keys: tuple[str, ...], title: str, explanation: Explained | None = None) -> str:
     laws = tuple(law for key in keys if (law := store.get_law(key)) is not None)
     if laws:
         pending = '<p class="rag-pending">일부 근거 조문 준비 중</p>' if len(laws) < len(keys) else ""
@@ -41,25 +91,32 @@ def evidence_markup(store: RagStore, keys: tuple[str, ...], title: str) -> str:
     else:
         basis = '<span class="basis-chip">근거 조문 준비 중</span>'
 
-    terms = {term.term: term for key in keys for term in store.get_terms(key)}
-    if direct := store.get_term(title):
-        terms = {direct.term: direct, **terms}
-    term_chips = "".join(map(_term_content, terms.values()))
-    if not term_chips:
-        term_chips = '<span class="basis-chip">용어 설명 준비 중</span>'
+    terms = _card_terms(store, keys, title, explanation)
+    term_chips = "".join(_term_markup(term, store, explanation) for term in terms)
     return f'<div class="review-chips evidence-chips">{basis}{term_chips}</div>'
 
 
-def evidence_chips(store: RagStore, keys: tuple[str, ...], title: str):
-    st.html(evidence_markup(store, keys, title))
+def evidence_chips(store: RagStore, keys: tuple[str, ...], title: str, explanation: Explained):
+    st.html(evidence_markup(store, keys, title, explanation))
 
 
-def glossary(store: RagStore):
-    if not store.terms:
-        st.caption("용어 설명 준비 중")
+def explanation_label(fields: frozenset[str], prefix: str, total: int, *, mixed: frozenset[str] = frozenset()) -> str:
+    count = sum(name.startswith(prefix) for name in fields)
+    if not count:
+        return "기본 설명"
+    if count == total and not any(name.startswith(prefix) for name in mixed):
+        return "AI가 작성한 설명이에요"
+    return "AI가 작성한 설명이에요 · 기본 설명 포함"
+
+
+def explanation_terms(explanation: Explained, store: RagStore):
+    if not explanation.content.terms:
         return
-    for term in store.terms:
-        st.html(_term_content(term))
+    with st.container(border=True, key="result-terms"):
+        st.subheader("급여 용어 풀이")
+        for term in explanation.content.terms:
+            if markup := _term_markup(term, store, explanation):
+                st.html(markup)
 
 
 def help_channels(store: RagStore):

@@ -25,7 +25,14 @@ python -m streamlit run app/main.py --server.address 127.0.0.1
 
 텍스트 PDF, DOCX, TXT를 올리고 **서류 읽기**를 누르면 AI가 원문 근거와 함께 항목을 추출합니다. 업로드한 서류는 앱의 세션 메모리에서 처리합니다. AI로 읽을 때는 추출할 텍스트를 OpenAI API로 보냅니다. 이미지나 스캔 서류에서는 텍스트가 들어 있는 파일을 사용합니다.
 
-저장소 최상위의 `.env`에 `OPENAI_API_KEY`와 Structured Outputs를 지원하는 `OPENAI_MODEL`을 설정합니다. 기존 샘플 카드에서는 저장된 결과를 사용하며, `SHOW_DEV_TOOLS=true`로 설정하면 나타나는 **샘플 서류를 AI로 직접 읽어 보기**에서만 가상 서류를 API로 보냅니다. 성공한 가상 서류 결과만 메모리에 캐시합니다.
+저장소 최상위의 `.env`에 `OPENAI_API_KEY`와 Structured Outputs를 지원하는 `OPENAI_MODEL`을 설정합니다. 기존 샘플 카드에서는 저장된 결과를 사용하며, `SHOW_DEV_TOOLS=true`로 설정하면 나타나는 **샘플 서류를 AI로 직접 읽어 보기**에서만 가상 서류를 API로 보냅니다. AI로 가상 서류를 읽은 결과는 성공했을 때만 메모리에 캐시합니다.
+
+결과 화면은 엔진의 숫자와 필요한 확인값으로 기본 설명을 먼저 표시합니다. 키와 모델이 설정되어 있으면 AI 결과 설명을 추가합니다. 저장된 예시 설명은 API 호출 없이 표시합니다. 가상 사례의 AI 설명을 미리 확인하려면 PowerShell에서 아래 명령을 실행합니다. 두 화면 샘플의 설명 파일도 갱신하려면 명령 끝에 `--save-samples`를 붙입니다.
+
+```powershell
+$env:RUN_LIVE = "1"
+python scripts/preview_explanations.py
+```
 
 가상 서류 3종의 항목별 일치율과 호출당 토큰을 직접 측정할 수 있습니다.
 

@@ -157,12 +157,80 @@ def test_special_terms_are_flagged(term_type):
     assert check(run(data), "special_terms").status == "needs_review"
 
 
+def test_below_minimum_wage_compares_the_minimum_total_and_splits_the_difference():
+    result = run(load_extraction("review_case"))
+    totals = {scenario.basis: row.amount for scenario in result.expected_pay
+              for row in scenario.items if row.item == "합계" and row.period == "monthly"}
+    assert totals == {"contract": 1042800, "minimum_wage": 1076170}
+    row = next(item for item in result.comparison if item.item == "합계")
+    assert (row.basis, row.expected, row.actual, row.difference) == (
+        "minimum_wage", Decimal(1076170), Decimal(869000), Decimal(207170),
+    )
+    assert (row.contract_expected, row.contract_difference, row.minimum_wage_difference) == (
+        Decimal(1042800), Decimal(173800), Decimal(33370),
+    )
+    assert row.contract_difference + row.minimum_wage_difference == row.difference
+    assert sum(note.reason == "수습 감액, 최저임금 적용 제외, 최저임금에 포함되는 수당이 있으면 금액이 달라질 수 있어요."
+               for note in result.limitations) == 1
+
+
+def test_below_minimum_wage_recalculates_premiums_for_both_workplace_sizes():
+    data = load_extraction("review_case")
+    use_night_schedule(data)
+    data["contract"]["daily_hours"]["value"] = 9
+    data["extra_answers"]["workplace_size"]["value"] = "unknown"
+    result = run(data)
+    scenarios = {(row.workplace_size, row.basis): row for row in result.expected_pay}
+
+    assert set(scenarios) == {(size, basis) for size in ("5_or_more", "under_5")
+                              for basis in ("contract", "minimum_wage")}
+    for size in ("5_or_more", "under_5"):
+        revised = scenarios[(size, "minimum_wage")]
+        original = scenarios[(size, "contract")]
+        assert len(revised.items) == len(original.items)
+        for fixed, contract in zip(revised.items, original.items):
+            assert (fixed.item, fixed.period, fixed.standards_year) == (contract.item, contract.period, 2026)
+            assert fixed.formula and "최저임금 시급 10,320원 적용" in fixed.applied_condition
+            if fixed.period == "weekly":
+                assert fixed.amount == contract.amount * Decimal("1.032")
+        comparison = [row for row in result.comparison if row.workplace_size == size]
+        assert [row.item for row in comparison].count("합계") == 1
+        assert all(row.basis == "minimum_wage" for row in comparison)
+    assert next(row.amount for row in scenarios[("5_or_more", "minimum_wage")].items
+                if row.item == "야간 가산" and row.period == "weekly") > 0
+    assert next(row.amount for row in scenarios[("5_or_more", "minimum_wage")].items
+                if row.item == "연장 가산" and row.period == "weekly") > 0
+
+
+def test_payment_above_contract_offsets_the_minimum_wage_difference():
+    data = load_extraction("review_case")
+    data["payslip"]["total_paid"]["value"] = 1060000
+    row = next(item for item in run(data).comparison if item.item == "합계")
+
+    assert (row.contract_difference, row.minimum_wage_difference, row.difference) == (
+        Decimal(-17200), Decimal(33370), Decimal(16170),
+    )
+
+
+def test_wage_at_the_minimum_keeps_contract_as_the_only_basis():
+    data = load_extraction()
+    data["contract"]["hourly_wage"]["value"] = 10320
+    result = run(data)
+
+    assert [scenario.basis for scenario in result.expected_pay] == ["contract"]
+    assert all(row.basis == "contract" and row.contract_expected is None for row in result.comparison)
+
+
 def test_unpaid_weekly_holiday_pay_is_compared():
     result = run(load_extraction("review_case"))
     row = next(item for item in result.comparison if item.item == "주휴수당")
 
     assert (row.expected, row.actual, row.difference, row.status) == (
-        Decimal(173800), Decimal(0), Decimal(173800), "needs_review"
+        Decimal(179362), Decimal(0), Decimal(179362), "needs_review"
+    )
+    assert row.basis == "minimum_wage"
+    assert (row.contract_expected, row.contract_difference, row.minimum_wage_difference) == (
+        Decimal(173800), Decimal(173800), Decimal(5562)
     )
 
 
@@ -225,10 +293,13 @@ def test_contract_only_keeps_checks_and_pay_without_flagging_comparison(size):
         (row.workplace_size, row.item, row.expected) for row in result.comparison
     ] == [
         (scenario.workplace_size, row.item, row.amount)
-        for scenario in result.expected_pay for row in scenario.items if row.period == "monthly"
+        for scenario in result.expected_pay if scenario.basis == "minimum_wage"
+        for row in scenario.items if row.period == "monthly"
     ]
     assert all(row.status == "not_compared" and row.actual is None and row.difference is None
-               for row in result.comparison)
+               and row.contract_difference is None for row in result.comparison)
+    totals = [row for row in result.comparison if row.item == "합계"]
+    assert totals and all(row.expected == 1076170 and row.contract_expected == 1042800 for row in totals)
     assert sum(row.status == "needs_review" for row in result.checks + result.comparison) == sum(
         row.status == "needs_review" for row in baseline.checks
     )

@@ -3,6 +3,10 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from app.steps.upload import ReviewDraft
+from llm.extract import blank_result
+from llm.samples import load_sample
+
 APP = Path(__file__).resolve().parents[1] / "app" / "main.py"
 DISCLAIMER = "법률 자문이 아니며 최종 판단은 관계 기관에서 이루어집니다."
 
@@ -17,7 +21,7 @@ def check_footer(app):
 
 @pytest.mark.parametrize(("sample", "monthly_total", "needs_review"), [
     ("normal_case", "1,094,940원", False),
-    ("review_case", "1,042,800원", True),
+    ("review_case", "1,076,170원", True),
 ])
 def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, needs_review):
     app = start()
@@ -45,6 +49,16 @@ def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, n
     assert app.metric[0].value == monthly_total
     assert any(row.label == "상세 영수증 보기" for row in app.expander)
     assert any(row.value == "사장님께 보낼 문구" for row in app.subheader) is needs_review
+    receipt = next(row.proto.body for row in app.get("html") if '<table class="pay-table">' in row.proto.body)
+    assert ('<th scope="col">최저임금 기준</th>' in receipt) is needs_review
+    if needs_review:
+        assert any(row.value == "최저임금 기준으로 계산하면 207,170원 덜 받았을 수 있어요" for row in app.header)
+        assert any("주휴수당 미지급 173,800원" in row.value and "최저임금 차이 33,370원" in row.value
+                   for row in app.markdown)
+        assert any(row.value == "계약대로 1,042,800원 · 최저임금 기준 1,076,170원" for row in app.caption)
+        assert all(amount in receipt for amount in ("1,042,800원", "1,076,170원", "869,000원", "207,170원"))
+        assert any('class="contract-label">계약 시급 기준' in row.proto.body
+                   and 'class="expected-label">최저임금 기준' in row.proto.body for row in app.get("html"))
     check_footer(app)
 
     app.button(key="chat-prompt-0").click().run()
@@ -62,8 +76,9 @@ def test_edited_input_is_calculated_and_restart_clears_previous_result():
     app.form_submit_button[0].click().run()
 
     assert not app.exception
-    assert app.metric[0].value == "1,042,800원"
-    assert [row.value for row in app.metric if row.label == "월 받을 금액"] == ["1,042,800원", "1,042,800원"]
+    assert app.metric[0].value == "1,076,170원"
+    assert [row.value for row in app.metric if row.label == "월 받을 금액"] == ["1,076,170원", "1,076,170원"]
+    assert [tab.label for tab in app.get("tab")] == ["5인 이상", "5인 미만"]
 
     app.button(key="restart").click().run()
     assert not app.exception
@@ -75,6 +90,24 @@ def test_edited_input_is_calculated_and_restart_clears_previous_result():
     app.button(key="show-sample-demo").click().run()
     app.button(key="sample-normal_case").click().run()
     assert app.text_input(key="review-contract-hourly_wage").value == "10500"
+
+
+def test_contract_only_receipt_shows_both_wage_bases_without_payment_columns():
+    extraction = load_sample("review_case")
+    extraction["payslip"] = blank_result().payslip.model_dump(mode="json")
+    extraction["documents_provided"] = {"contract": True, "payslip": False}
+    app = start()
+    app.session_state["step"] = 2
+    app.session_state["draft"] = ReviewDraft(extraction, sample_name="review_case")
+    app.run()
+    app.form_submit_button[0].click().run()
+
+    assert not app.exception
+    assert [metric.value for metric in app.metric[:2]] == ["1,076,170원", "비교 안 함"]
+    assert any(row.value == "최저임금 기준으로 계산하면 매달 약 1,076,170원을 받아요" for row in app.header)
+    receipt = next(row.proto.body for row in app.get("html") if 'class="pay-table has-wage-bases"' in row.proto.body)
+    assert all(label in receipt for label in ("계약 시급 기준", "최저임금 기준", "1,042,800원", "1,076,170원"))
+    assert "받은 금액</th>" not in receipt
 
 
 def test_invalid_wage_keeps_review_step_and_names_the_field():

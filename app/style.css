@@ -148,11 +148,12 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 [data-testid="stMetricValue"] { font-size: clamp(0.94rem, 1.5vw, 1.26rem); font-weight: 750; }
 [data-testid="stMetricLabel"] p { font-size: 0.82rem; white-space: normal; }
-.pay-legend { display: flex; gap: 1.15rem; color: var(--muted); font-size: 0.82rem; margin: 0 0 1.1rem; }
+.pay-legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1.15rem; color: var(--muted); font-size: 0.82rem; margin: 0 0 1.1rem; }
 .pay-legend span { display: inline-flex; gap: 0.32rem; align-items: center; }
 .pay-legend span::before { content: ""; width: 0.62rem; height: 0.28rem; border-radius: 1rem; }
 .expected-label::before, .pay-bar.expected { background: var(--accent); }
 .actual-label::before, .pay-bar.actual { background: #8492aa; }
+.contract-label::before, .pay-bar.contract { border: 1px solid var(--accent); }
 .pay-bar-group { margin: 0 0 1.05rem; }
 .pay-bar-group strong { display: block; font-size: 0.93rem; margin-bottom: 0.25rem; }
 .pay-bar-line { display: flex; align-items: center; gap: 0.55rem; margin: 0.22rem 0; }
@@ -163,6 +164,7 @@ html, body, [data-testid="stAppViewContainer"] {
 .pay-table :is(th,td) { padding: 0.55rem 0.25rem; border-bottom: 1px solid var(--line); text-align: right; }
 .pay-table th:first-child { text-align: left; }
 .pay-table td { white-space: nowrap; }
+.pay-table.has-wage-bases .receipt-formula { white-space: normal; }
 .pay-table tbody tr:last-child td { font-weight: 700; }
 .pay-diff { font-weight: 750; }
 .pay-formula {
