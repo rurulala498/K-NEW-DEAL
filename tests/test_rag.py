@@ -36,7 +36,7 @@ def review_app(monkeypatch, store):
     app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     app.button(key="sample-review_case").click().run()
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
     assert not app.exception
     return app
 

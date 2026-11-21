@@ -39,11 +39,11 @@ def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, n
 
     assert not app.exception
     assert not app.metric
-    assert any(row.label == "전체 항목 보기" for row in app.expander)
+    assert any(row.label.startswith("나머지 항목 ") for row in app.expander)
     assert any("신뢰도가 낮아요" in row.label for row in app.text_input) is needs_review
     check_footer(app)
 
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
 
     assert not app.exception
     assert app.metric[0].value == monthly_total
@@ -74,7 +74,7 @@ def test_edited_input_is_calculated_and_restart_clears_previous_result():
     app.button(key="sample-normal_case").click().run()
     app.text_input(key="review-contract-hourly_wage").set_value("10000")
     app.selectbox(key="review-workplace-size").set_value("unknown")
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
 
     assert not app.exception
     assert app.metric[0].value == "1,076,170원"
@@ -101,7 +101,7 @@ def test_contract_only_receipt_shows_both_wage_bases_without_payment_columns():
     app.session_state["step"] = 2
     app.session_state["draft"] = ReviewDraft(extraction, sample_name="review_case")
     app.run()
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
 
     assert not app.exception
     assert [metric.value for metric in app.metric[:2]] == ["1,076,170원", "비교 안 함"]
@@ -117,7 +117,7 @@ def test_invalid_wage_keeps_review_step_and_names_the_field():
     app.button(key="consent").click().run()
     app.button(key="sample-normal_case").click().run()
     app.text_input(key="review-contract-hourly_wage").set_value("숫자 아님")
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
     assert not app.exception
     assert not app.metric
     assert any("시급 (원)의 형식을 확인해 주세요." in row.value for row in app.markdown)
@@ -140,7 +140,7 @@ def test_review_displays_gross_total_hint_and_submits_legacy_times():
     times = app.dataframe[0].value
     assert times.loc[0, "start"] == "09:00" and times.loc[0, "end"] == "14:30"
     gross.set_value("869000")
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
 
     assert not app.exception
     assert app.session_state.confirmed.payslip.total_paid.value == 869000
@@ -161,3 +161,23 @@ def test_landing_shows_calculated_example_and_routes_to_consent():
     assert app.button(key="sample-review_case")
     app.button(key="brand-home").click().run()
     assert app.button(key="hero-check") and not app.get("file_uploader")
+
+
+def test_review_preview_follows_core_values_without_confirming():
+    app = start()
+    app.button(key="begin-check").click().run()
+    app.button(key="consent").click().run()
+    app.button(key="sample-review_case").click().run()
+    preview = next(row.proto.body for row in app.get("html") if 'class="review-live-row"' in row.proto.body)
+    assert "1,042,800원" in preview and "1,076,170원" in preview
+    assert "confirmed" not in app.session_state and "result" not in app.session_state
+
+    wage = app.text_input(key="review-contract-hourly_wage")
+    wage.set_value("11000").run()
+    preview = next(row.proto.body for row in app.get("html") if 'class="review-live-row"' in row.proto.body)
+    assert "1,147,080원" in preview and "최저임금 기준" not in preview
+    assert "result" not in app.session_state
+    app.text_input(key="review-contract-hourly_wage").set_value("값 없음").run()
+    assert any("값을 확인하면 계산돼요" in row.proto.body for row in app.get("html"))
+    next(button for button in app.form_submit_button if button.label == "이전으로").click().run()
+    assert app.file_uploader and "result" not in app.session_state

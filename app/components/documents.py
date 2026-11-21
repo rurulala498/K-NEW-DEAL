@@ -58,12 +58,7 @@ def highlight_document(original: str, extraction: dict) -> str:
 def document_preview(
     sample: str | None, extraction: dict, texts: DocumentTexts | None = None, *, payslip_provided: bool = True,
 ):
-    st.subheader("원본 서류 미리보기")
-    if texts is None:
-        st.caption("시연용 가상 서류예요. 주황색으로 표시한 값은 한 번 더 확인해 주세요.")
-    else:
-        st.caption("원문에서 찾은 근거를 표시했어요. 주황색 구절은 한 번 더 확인해 주세요.")
-
+    st.subheader("원본 서류")
     tabs = st.tabs(["근로계약서", "급여명세서"]) if payslip_provided else [st.container()]
     if texts is not None:
         for tab, (section, original) in zip(tabs, texts._asdict().items()):
@@ -73,14 +68,19 @@ def document_preview(
                     st.html(f'<pre class="sample-document uploaded-document">{annotated}</pre>')
                 else:
                     st.caption("미리 볼 원문이 없어요. 확인한 내용을 오른쪽에 직접 적어 주세요.")
-        return
+    else:
+        for tab, (heading, lines) in zip(tabs, sample_document_lines(sample).items()):
+            with tab:
+                paragraphs = "".join(
+                    f"<p>{render_sample_line(line, extraction, escape, _sample_mark)}</p>" for line in lines
+                )
+                st.html(f'<div class="sample-document"><strong>{escape(heading)}</strong>{paragraphs}</div>')
 
-    for tab, (heading, lines) in zip(tabs, sample_document_lines(sample).items()):
-        with tab:
-            paragraphs = "".join(
-                f"<p>{render_sample_line(line, extraction, escape, _sample_mark)}</p>" for line in lines
-            )
-            st.html(f'<div class="sample-document"><strong>{escape(heading)}</strong>{paragraphs}</div>')
+    sample_note = '<span>가상 서류 예시</span>' if sample else ""
+    st.html(
+        '<div class="document-legend"><span><mark class="sample-mark">파랑</mark> AI가 읽은 근거</span>'
+        f'<span><mark class="sample-mark mark-low">주황</mark> 확인이 필요한 근거</span>{sample_note}</div>'
+    )
 
 
 def _sample_mark(path: str, field: dict) -> str:

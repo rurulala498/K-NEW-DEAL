@@ -248,7 +248,7 @@ def test_sample_flow_and_message_rewrites_do_not_call_the_api(monkeypatch):
     app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     app.button(key="sample-review_case").click().run()
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
     tone = next(field for field in app.selectbox if field.label == "말투")
     tone.set_value("간단하게")
     app.button(key="rewrite-employer-messages").click().run()

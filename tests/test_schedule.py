@@ -154,7 +154,7 @@ def test_review_table_edit_changes_pay_and_keeps_headcount_recommendation(monkey
     app.session_state[EDITOR_KEY] = {"edited_rows": {1: {"end": "익일 01:30"}}, "added_rows": [], "deleted_rows": []}
     app.run()
     assert any("주 21시간" in item.value for item in app.warning)
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
 
     assert not app.exception
     assert app.session_state.confirmed.contract.work_schedule.value[1].end.value == time(1, 30)
@@ -171,7 +171,7 @@ def test_review_can_remove_a_shift_and_add_another(monkeypatch):
     }
     app.run()
     assert any("주 16시간" in item.value for item in app.warning)
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
 
     assert not app.exception
     entries = app.session_state.confirmed.contract.work_schedule.value

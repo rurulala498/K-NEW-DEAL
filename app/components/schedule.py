@@ -71,8 +71,8 @@ def edit_schedule(original: Contract, contractual_weekly: str | None) -> tuple[C
     defaults = original.schedule_entries()
     frame = pd.DataFrame([_display(entry, index) for index, entry in enumerate(defaults)],
                          columns=("_source_row", *LABELS), dtype="string")
-    st.markdown("**근무 시간**")
-    st.caption("같은 시간에 일하는 요일은 한 행에 적어요. 휴게 시각을 알면 시작·종료를, 분만 알면 휴게 분을 적어요.")
+    st.markdown("**요일별 근무 시간**")
+    st.caption("같은 시간에 일하는 요일은 한 행에 적어요. 표의 +로 행을 추가하고, 휴게 시각이나 휴게 분을 적어 주세요.")
     table = st.data_editor(
         frame, num_rows="dynamic", hide_index=True, key=EDITOR_KEY,
         column_config={"_source_row": None, **{name: st.column_config.TextColumn(label) for name, label in LABELS.items()}},

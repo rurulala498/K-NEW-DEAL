@@ -389,7 +389,7 @@ def ready_sample():
     app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     app.button(key="sample-review_case").click().run()
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
     return app
 
 
@@ -421,13 +421,13 @@ def test_app_sample_chat_shows_real_response_and_sources_with_fake_api(monkeypat
 def test_app_sample_hypothetical_answer_opens_confirmed_inputs_again():
     app = ready_sample()
     app.text_input(key="receipt-chat-input").set_value("시급 11,000원이면 얼마예요?")
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "질문 보내기").click().run()
     assert not app.exception and any(row.value == chat.CHANGE_VALUES for row in app.text)
     app.button(key="chat-edit-confirmed").click().run()
     assert not app.exception and not app.metric
     assert app.text_input(key="review-contract-hourly_wage").value == "10000"
     app.text_input(key="review-contract-hourly_wage").set_value("11000")
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
     assert not app.exception and app.metric[0].value == "1,147,080원"
 
 
@@ -445,7 +445,7 @@ def test_app_web_reference_and_consultation_appear_separately(monkeypatch):
     monkeypatch.setattr(chat, "ChatClient", lambda settings: fake)
     app = ready_sample()
     app.text_input(key="receipt-chat-input").set_value("퇴직금은 어떻게 계산해요?")
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "질문 보내기").click().run()
 
     assert not app.exception and fake.web_questions == ["퇴직금은 어떻게 계산해요?"]
     assert any("참고 · 추가 확인 필요" in row.value for row in app.markdown)

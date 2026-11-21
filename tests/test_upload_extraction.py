@@ -76,7 +76,7 @@ def test_uploaded_pdfs_flow_to_review_with_source_highlighting(monkeypatch):
     assert any('class="sample-mark mark-low">시급 10,500원' in element.proto.body for element in app.get("html"))
 
     app.text_input(key="review-contract-hourly_wage").set_value("10500")
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
     assert not app.exception
     wage = app.session_state.confirmed.contract.hourly_wage
     assert wage.value == 10500 and wage.source_text is None
@@ -179,7 +179,7 @@ def test_contract_only_can_add_payslip_without_replacing_confirmed_contract(monk
     app.text_input(key="review-contract-hourly_wage").set_value("10600")
     app.selectbox(key="review-workplace-size").set_value("5_or_more")
     app.text_input(key="review-pay-period").set_value("매월 1일~말일")
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
 
     assert not app.exception
     assert [metric.value for metric in app.metric] == ["1,105,368원", "비교 안 함", "4 / 4 충족"]
@@ -209,7 +209,7 @@ def test_contract_only_can_add_payslip_without_replacing_confirmed_contract(monk
     assert app.text_input(key="review-pay-period").value == "매월 1일~말일"
     assert any(tab.label == "급여명세서" for tab in app.get("tab"))
     assert any("시급 10,500원" in row.proto.body for row in app.get("html"))
-    app.form_submit_button[0].click().run()
+    next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
 
     assert not app.exception
     assert app.session_state.confirmed.contract == saved.contract
