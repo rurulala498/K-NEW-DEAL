@@ -1,31 +1,77 @@
+from html import escape
+
 import streamlit as st
 
-from app.components.evidence import explanation_label, help_channels
-from llm import explain
+from app.components.evidence import chat_evidence, explanation_label, help_channel_links, help_channels
+from app.format import PAY_BASIS_LABELS, WORKPLACE_LABELS, won
+from llm import chat, explain
 from llm.client import ApiSettings
 from rag.store import RagStore
 
-QUESTIONS = ("주휴수당이 뭐예요?", "차이는 어떻게 봐요?", "다음에 뭘 확인해요?")
+CHAT_EDIT_REQUEST = "receipt_chat_edit_requested"
+
+def _chat_reply(reply: chat.ChatReply, store: RagStore):
+    st.text(reply.answer)
+    if reply.validation == "passed":
+        st.caption("AI가 작성한 답변이에요")
+    chat_evidence(tuple(source.record for source in reply.sources))
+    if reply.calculations:
+        with st.expander("엔진 계산식 보기"):
+            for entry in reply.calculations:
+                row = entry.row
+                period = "주" if row.period == "weekly" else "월"
+                st.caption(f"{WORKPLACE_LABELS[entry.workplace_size]} · {PAY_BASIS_LABELS[entry.basis]} · {row.standards_year}년 기준")
+                st.text(f"{row.item} · {period} {won(row.amount)}")
+                st.text(row.formula)
+    if reply.web:
+        with st.container(border=True):
+            st.markdown("**참고 · 추가 확인 필요**")
+            st.text(reply.web.summary)
+            for source in reply.web.sources:
+                st.html(
+                    f'<p class="rag-source"><a href="{escape(source.url)}" target="_blank" '
+                    f'rel="noopener noreferrer">{escape(source.title)}</a></p>'
+                )
+    if reply.needs_official_check:
+        if store.help_channels:
+            st.caption("공식 상담 경로")
+            help_channel_links(store)
+        else:
+            st.caption(chat.OFFICIAL_HELP)
 
 
-def _chat(payslip_provided: bool):
-    questions = QUESTIONS if payslip_provided else (QUESTIONS[0], "예상 급여는 어떻게 봐요?", QUESTIONS[2])
+def _chat(context: explain.ExplanationContext, settings: ApiSettings, store: RagStore):
+    session = st.session_state.setdefault(chat.SESSION_KEY, chat.ChatSession())
+    session.use_context(context.cache_key)
     with st.container(border=True, key="chat-panel"):
         st.subheader("도움 챗봇")
-        st.caption("질문을 골라 보거나 직접 써 볼 수 있어요.")
-        for index, question in enumerate(questions):
+        st.caption("질문을 골라 보거나 직접 적어요. 개인정보는 빼 주세요.")
+        selected = None
+        for index, question in enumerate(chat.suggestions(context, store)):
             if st.button(question, key=f"chat-prompt-{index}", width="stretch"):
-                st.session_state["receipt_question"] = question
+                selected = question
+        history = st.container(key="chat-history")
         with st.form("receipt-chat-form", border=False, clear_on_submit=True):
-            question = st.text_input("도움 챗봇에 질문하기", placeholder="질문을 직접 적어요",
-                                     label_visibility="collapsed")
-            if st.form_submit_button("질문 보내기", width="stretch") and question.strip():
-                st.session_state["receipt_question"] = question.strip()
-        if st.session_state.get("receipt_question"):
-            st.text(st.session_state["receipt_question"])
-            action = ("상세 영수증에서 항목별 금액을 비교해 보세요." if payslip_provided
-                      else "받을 금액 명세에서 예상 급여를 확인해 보세요.")
-            st.markdown(f"**준비 중** · 지금은 샘플 답변이에요. {action}")
+            question = st.text_input(
+                "도움 챗봇에 질문하기", placeholder="질문을 직접 적어요", key="receipt-chat-input",
+                label_visibility="collapsed", max_chars=chat.QUESTION_LENGTH,
+            )
+            if st.form_submit_button("질문 보내기", width="stretch"):
+                selected = question
+        if selected is not None:
+            with st.spinner("답변에 쓸 자료를 확인하고 있어요…"):
+                reply = chat.ask(selected, context, store, settings, session)
+            if reply.validation == "blocked":
+                st.info(reply.answer)
+        with history:
+            for asked, reply in session.history.items():
+                with st.chat_message("user"):
+                    st.text(asked)
+                with st.chat_message("assistant"):
+                    _chat_reply(reply, store)
+        if session.history and next(reversed(session.history.values())).answer_type == "hypothetical":
+            if st.button("내용 확인으로 돌아가기", key="chat-edit-confirmed", width="stretch"):
+                st.session_state[CHAT_EDIT_REQUEST] = True
 
 
 def _messages(context: explain.ExplanationContext, explanation: explain.Explained, settings: ApiSettings, *, pending: bool):
@@ -66,7 +112,7 @@ def _messages(context: explain.ExplanationContext, explanation: explain.Explaine
 
 
 def help_panel(context: explain.ExplanationContext, explanation: explain.Explained, settings: ApiSettings,
-               store: RagStore, *, pending: bool):
-    _chat(context.payload["confirmed"]["documents_provided"]["payslip"])
-    _messages(context, explanation, settings, pending=pending)
+               store: RagStore, *, pending: bool, sample: bool):
+    _chat(context, settings, store)
+    _messages(context, explanation, ApiSettings("", "") if sample else settings, pending=pending)
     help_channels(store)

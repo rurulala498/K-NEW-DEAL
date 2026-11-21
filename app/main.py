@@ -9,12 +9,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from app.components.help_panel import CHAT_EDIT_REQUEST
 from app.components.shell import footer, reset_scroll, top_bar
 from app.steps.result import show_result
 from app.steps.review import review_step
-from app.steps.upload import upload_step
+from app.steps.upload import ReviewDraft, upload_step
 from engine import run_engine
 from llm.documents import DocumentTexts
+from llm.samples import sample_texts
 from rag.store import default_store
 
 STYLE = Path(__file__).with_name("style.css")
@@ -65,9 +67,16 @@ def main():
             )
             st.rerun()
     else:
-        if show_result(st.session_state.result, st.session_state.confirmed, store,
-                       sample_name=st.session_state.get("result_sample")):
+        sample_name = st.session_state.get("result_sample")
+        if show_result(st.session_state.result, st.session_state.confirmed, store, sample_name=sample_name):
             st.session_state.update(step=1, adding_payslip=True, scroll_on_show=True)
+            st.rerun()
+        if st.session_state.pop(CHAT_EDIT_REQUEST, False):
+            texts = sample_texts(sample_name) if sample_name else DocumentTexts(st.session_state.get("contract_text"))
+            draft = ReviewDraft(
+                st.session_state.confirmed.model_dump(mode="json"), sample_name=sample_name, texts=texts,
+            )
+            st.session_state.update(step=2, draft=draft, scroll_on_show=True)
             st.rerun()
 
     footer()

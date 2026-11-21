@@ -6,7 +6,7 @@ from llm.explain import Explained
 from rag.basis_map import CARD_TERM_ORDER, TERM_BASIS
 from rag.store import RagStore
 from schemas.explanation import TermExplanation
-from schemas.rag import LawRecord
+from schemas.rag import LawRecord, TermRecord
 
 
 def _source(url: str, checked_date) -> str:
@@ -135,14 +135,35 @@ def explanation_terms(explanation: Explained, store: RagStore):
                 st.html(markup)
 
 
-def help_channels(store: RagStore):
-    if not store.help_channels:
+def chat_evidence(records: tuple[LawRecord | TermRecord, ...]):
+    if not records:
         return
-    with st.container(border=True, key="official-help-panel"):
-        st.subheader("더 확인하고 싶다면")
-        for channel in store.help_channels:
-            st.html(
-                f'<article class="rag-help"><h4>{escape(channel.name)}</h4>'
-                f'<p>{escape(channel.what_for)}</p><p>{escape(channel.contact)}</p>'
-                f'{_source(channel.url, channel.checked_date)}</article>'
-            )
+    chips = []
+    for record in records:
+        if isinstance(record, LawRecord):
+            title = f"{record.law_name} {record.article_no}"
+            content = _law_content(record)
+        else:
+            title = record.term
+            content = f"<p>{escape(record.easy_explanation)}</p>{_source(record.source_url, record.checked_date)}"
+        chips.append(
+            f'<details class="term-chip"><summary>{escape(title)}</summary>'
+            f'<div class="rag-detail">{content}</div></details>'
+        )
+    st.html(f'<div class="review-chips evidence-chips">{"".join(chips)}</div>')
+
+
+def help_channel_links(store: RagStore):
+    for channel in store.help_channels:
+        st.html(
+            f'<article class="rag-help"><h4>{escape(channel.name)}</h4>'
+            f'<p>{escape(channel.what_for)}</p><p>{escape(channel.contact)}</p>'
+            f'{_source(channel.url, channel.checked_date)}</article>'
+        )
+
+
+def help_channels(store: RagStore):
+    if store.help_channels:
+        with st.container(border=True, key="official-help-panel"):
+            st.subheader("더 확인하고 싶다면")
+            help_channel_links(store)

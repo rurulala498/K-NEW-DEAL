@@ -4,6 +4,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from app.steps.upload import ReviewDraft
+from llm import chat
 from llm.extract import blank_result
 from llm.samples import load_sample
 
@@ -63,7 +64,8 @@ def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, n
 
     app.button(key="chat-prompt-0").click().run()
     assert not app.exception
-    assert any("샘플 답변이에요" in row.value for row in app.markdown)
+    assert any(row.value == chat.NO_ANSWER for row in app.text)
+    assert any(row.value == chat.OFFICIAL_HELP for row in app.caption)
 
 
 def test_edited_input_is_calculated_and_restart_clears_previous_result():

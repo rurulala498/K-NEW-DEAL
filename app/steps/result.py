@@ -10,7 +10,7 @@ from app.format import (
     PAY_BASIS_LABELS, PREMIUMS, WORKPLACE_LABELS, WorkplacePay, conversational, pay_by_workplace,
 )
 from llm import explain
-from llm.client import ApiSettings, configuration_message
+from llm.client import configuration_message
 from rag.basis_map import check_basis_keys, pay_basis_keys
 from rag.store import RagStore
 from schemas import EngineResult, ExtractionResult
@@ -85,12 +85,11 @@ def show_result(
     context = explain.build_context(result, extraction, store)
     key = context.cache_key
     cache = st.session_state.setdefault("explanation_cache", {})
+    settings = explain.read_settings()
     if sample_name:
-        settings = ApiSettings("", "")
         explanation = explain.saved_sample(sample_name, context)
         pending = False
     else:
-        settings = explain.read_settings()
         explanation = cache.get(key, explain.Explained(context.basic))
         pending = key not in cache and configuration_message(settings) is None
 
@@ -132,7 +131,7 @@ def show_result(
             scenario_comparison(scenarios)
             _standards(result, store, explanation)
         with support:
-            help_panel(context, explanation, settings, store, pending=pending)
+            help_panel(context, explanation, settings, store, pending=pending, sample=bool(sample_name))
     if pending and not add_payslip:
         cache[key] = explain.generate(context, settings)
         if len(cache) > 8:

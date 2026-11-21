@@ -18,6 +18,7 @@ class ApiSettings:
     api_key: str = field(repr=False)
     model: str
     show_dev_tools: bool = False
+    enable_web_search: bool = False
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,12 @@ def read_settings(env_file: Path = ENV_FILE) -> ApiSettings:
     key = os.environ.get("OPENAI_API_KEY") or values.get("OPENAI_API_KEY") or ""
     model = os.environ.get("OPENAI_MODEL") or values.get("OPENAI_MODEL") or ""
     dev_tools = os.environ.get("SHOW_DEV_TOOLS", values.get("SHOW_DEV_TOOLS") or "")
-    return ApiSettings(key.strip(), model.strip(), show_dev_tools=dev_tools.strip().lower() == "true")
+    web_search = os.environ.get("ENABLE_WEB_SEARCH", values.get("ENABLE_WEB_SEARCH") or "")
+    return ApiSettings(
+        key.strip(), model.strip(),
+        show_dev_tools=dev_tools.strip().lower() == "true",
+        enable_web_search=web_search.strip().lower() == "true",
+    )
 
 
 def configuration_message(settings: ApiSettings) -> str | None:
@@ -63,14 +69,17 @@ class ExtractionClient:
         logging.getLogger("openai").setLevel(logging.WARNING)
         logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 
+    def _api(self) -> OpenAI:
+        return OpenAI(
+            api_key=self.settings.api_key,
+            base_url="https://api.openai.com/v1",
+            timeout=45.0,
+            max_retries=0,
+        )
+
     def read(self, prompt: str, documents: str, schema: type[BaseModel]) -> ModelReply:
         try:
-            with OpenAI(
-                api_key=self.settings.api_key,
-                base_url="https://api.openai.com/v1",
-                timeout=45.0,
-                max_retries=0,
-            ) as api:
+            with self._api() as api:
                 response = api.responses.parse(
                     model=self.model,
                     input=[

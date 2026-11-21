@@ -220,10 +220,10 @@ def build_context(result: EngineResult, extraction: ExtractionResult, store: Rag
     return ExplanationContext(result, payload, items, rows, basic, extraction.contract.workplace.value)
 
 
-def _facts(context: ExplanationContext, path: str, item: CheckResult | ComparisonItem | None, *,
-           include_special_terms: bool = True) -> NumericFacts:
+def _confirmed_numeric_facts(
+    confirmed: dict, standards: list[dict], schedule: list[dict], *, include_special_terms: bool,
+) -> NumericFacts:
     facts = NumericFacts()
-    confirmed = context.payload["confirmed"]
     for name, unit in CONTRACT_NUMBERS.items():
         facts.add(confirmed.get(name), unit)
     facts.add(confirmed.get("weekly_holiday_hours"), "시간")
@@ -232,7 +232,7 @@ def _facts(context: ExplanationContext, path: str, item: CheckResult | Compariso
             for unit, value in numeric_tokens(term):
                 if unit == "원":
                     facts.add(value, unit)
-    for standard in context.payload["standards"]:
+    for standard in standards:
         facts.add(standard["year"], "년")
         facts.add(standard["minimum_hourly_wage"], "원")
         facts.add(standard["weekly_holiday_min_hours"], "시간")
@@ -248,7 +248,7 @@ def _facts(context: ExplanationContext, path: str, item: CheckResult | Compariso
     for name in ("work_start", "work_end", "pay_day"):
         if confirmed.get(name):
             facts.read(confirmed[name])
-    for row in context.payload.get("work_schedule", ()):
+    for row in schedule:
         for name in ("start", "end", "break_start", "break_end"):
             if row.get(name):
                 facts.read(row[name])
@@ -257,6 +257,15 @@ def _facts(context: ExplanationContext, path: str, item: CheckResult | Compariso
                 value = Decimal(row[name])
                 facts.add(value, unit)
                 facts.add(hours_text(value), unit)
+    return facts
+
+
+def _facts(context: ExplanationContext, path: str, item: CheckResult | ComparisonItem | None, *,
+           include_special_terms: bool = True) -> NumericFacts:
+    facts = _confirmed_numeric_facts(
+        context.payload["confirmed"], context.payload["standards"], context.payload.get("work_schedule", []),
+        include_special_terms=include_special_terms,
+    )
     for limit in context.result.limitations:
         if limit.item == "요일별 근무 시간":
             facts.read(limit.reason)

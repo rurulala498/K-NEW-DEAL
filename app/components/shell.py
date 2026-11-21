@@ -1,5 +1,7 @@
 import streamlit as st
 
+from llm.chat import SESSION_KEY
+
 STEPS = ("서류 올리기", "내용 확인", "점검 결과")
 DISCLAIMER = "법률 자문이 아니며 최종 판단은 관계 기관에서 이루어집니다."
 
@@ -28,7 +30,11 @@ def footer():
 
 
 def reset():
+    chat_session = st.session_state.get(SESSION_KEY)
     st.session_state.clear()
+    if chat_session is not None:
+        chat_session.clear_conversation()
+        st.session_state[SESSION_KEY] = chat_session
     st.session_state.scroll_on_show = True
 
 
