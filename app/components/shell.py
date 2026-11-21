@@ -25,7 +25,7 @@ def svg_uri(name: str) -> str:
 def begin_check(examples: bool = False):
     st.session_state.update(step=1, scroll_on_show=True)
     if examples:
-        st.session_state.update(examples_open=True, scroll_to_examples=True)
+        st.session_state.scroll_to_examples = True
 
 
 def _progress(step: int) -> str:

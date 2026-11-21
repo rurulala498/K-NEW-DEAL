@@ -247,7 +247,6 @@ def test_sample_flow_and_message_rewrites_do_not_call_the_api(monkeypatch):
     app = AppTest.from_file(str(APP), default_timeout=20).run()
     app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
-    app.button(key="show-sample-demo").click().run()
     app.button(key="sample-review_case").click().run()
     app.form_submit_button[0].click().run()
     tone = next(field for field in app.selectbox if field.label == "말투")

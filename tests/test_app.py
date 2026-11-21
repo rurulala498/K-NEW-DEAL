@@ -34,9 +34,7 @@ def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, n
     app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     assert len(app.get("file_uploader")) == 2
-    assert not any(button.key == f"sample-{sample}" for button in app.button)
-    assert app.button(key="show-sample-demo").label == "예시로 체험하기"
-    app.button(key="show-sample-demo").click().run()
+    assert app.button(key=f"sample-{sample}")
     app.button(key=f"sample-{sample}").click().run()
 
     assert not app.exception
@@ -73,7 +71,6 @@ def test_edited_input_is_calculated_and_restart_clears_previous_result():
     app = start()
     app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
-    app.button(key="show-sample-demo").click().run()
     app.button(key="sample-normal_case").click().run()
     app.text_input(key="review-contract-hourly_wage").set_value("10000")
     app.selectbox(key="review-workplace-size").set_value("unknown")
@@ -92,7 +89,6 @@ def test_edited_input_is_calculated_and_restart_clears_previous_result():
     check_footer(app)
     app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
-    app.button(key="show-sample-demo").click().run()
     app.button(key="sample-normal_case").click().run()
     assert app.text_input(key="review-contract-hourly_wage").value == "10500"
 
@@ -119,7 +115,6 @@ def test_invalid_wage_keeps_review_step_and_names_the_field():
     app = start()
     app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
-    app.button(key="show-sample-demo").click().run()
     app.button(key="sample-normal_case").click().run()
     app.text_input(key="review-contract-hourly_wage").set_value("숫자 아님")
     app.form_submit_button[0].click().run()

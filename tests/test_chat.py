@@ -388,7 +388,6 @@ def ready_sample():
     app = AppTest.from_file(str(APP), default_timeout=20).run()
     app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
-    app.button(key="show-sample-demo").click().run()
     app.button(key="sample-review_case").click().run()
     app.form_submit_button[0].click().run()
     return app

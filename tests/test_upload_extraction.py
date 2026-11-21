@@ -39,7 +39,6 @@ def test_no_key_message_keeps_precomputed_sample_available(monkeypatch):
     assert app.button(key="read-uploads").disabled
     assert not any(button.key == "read-ai-sample" for button in app.button)
 
-    app.button(key="show-sample-demo").click().run()
     app.button(key="sample-normal_case").click().run()
     assert not app.exception
     assert app.text_input(key="review-contract-hourly_wage").value == "10500"
@@ -100,7 +99,6 @@ def test_request_error_offers_retry_manual_input_and_saved_samples(monkeypatch):
     assert not app.exception
     assert any("AI 응답이 늦어졌어요" in note.value for note in app.warning)
     assert app.button(key="read-uploads").label == "다시 시도"
-    app.button(key="show-sample-demo").click().run()
     assert not app.button(key="sample-normal_case").disabled
     app.button(key="manual-entry").click().run()
     assert not app.exception
@@ -163,14 +161,14 @@ def test_contract_only_can_add_payslip_without_replacing_confirmed_contract(monk
     app = ready_app(monkeypatch, ApiSettings("fake", "fake-model"))
     assert app.button(key="read-uploads").disabled
     assert any("근로계약서를 올려 주세요." in note.value for note in app.caption)
-    assert any("근로계약서** · 필수" in label.value for label in app.markdown)
-    assert any("급여명세서** · 선택" in label.value for label in app.markdown)
+    assert any("필수</span><h3>근로계약서" in label.proto.body for label in app.get("html"))
+    assert any("선택</span><h3>급여명세서" in label.proto.body for label in app.get("html"))
 
     contract_file = DOCS / "normal_contract.pdf"
     app.file_uploader[0].upload(contract_file.name, contract_file.read_bytes(), "application/pdf").run()
     assert not app.button(key="read-uploads").disabled
     assert any("급여명세서 없이 계약서만 점검해요." in note.value for note in app.caption)
-    assert any("근로계약서** · 올림 완료" in label.value for label in app.markdown)
+    assert any("올림 완료</span><h3>근로계약서" in label.proto.body for label in app.get("html"))
     app.button(key="read-uploads").click().run()
 
     assert not app.exception
@@ -235,3 +233,14 @@ def test_payslip_only_blocks_read_and_manual_input(monkeypatch):
         note.value == "근로계약서를 함께 올려 주세요. 계약서를 서면으로 받지 못했다면, 그 자체도 확인할 사항이에요."
         for note in app.caption
     )
+
+
+def test_uploaded_file_can_be_removed_without_removing_other_document(monkeypatch):
+    app = ready_app(monkeypatch, ApiSettings("fake", "fake-model"))
+    add_documents(app)
+    assert not app.button(key="read-uploads").disabled
+    assert any("normal_contract.pdf" in row.proto.body and " KB" in row.proto.body for row in app.get("html"))
+    app.button(key="remove-upload-근로계약서").click().run()
+    assert not app.exception and app.button(key="read-uploads").disabled
+    assert not any(row.key == "remove-upload-근로계약서" for row in app.button)
+    assert app.button(key="remove-upload-급여명세서")

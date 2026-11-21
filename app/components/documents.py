@@ -8,21 +8,6 @@ from llm.documents import DocumentTexts
 from llm.samples import render_sample_line, sample_document_lines, sample_value
 
 
-def receipt_preview():
-    st.html("""
-        <figure class="preview-receipt" aria-label="결과 영수증 정적 예시">
-            <div class="receipt-paper-head">
-                <span class="icon-line" aria-hidden="true">receipt_long</span>
-                <div><strong>내 급여 영수증</strong><small>한눈에 보는 예시</small></div>
-            </div>
-            <dl><div><dt>받을 금액</dt><dd>1,094,940원</dd></div>
-                <div><dt>받은 금액</dt><dd>1,094,940원</dd></div></dl>
-            <div class="receipt-paper-total"><span>차이</span><strong>0원</strong></div>
-            <span class="status status-ok">기준에 맞아요</span>
-        </figure>
-    """)
-
-
 def _marked(text: str, confidence: str) -> str:
     low = " mark-low" if confidence == "low" else ""
     return f'<mark class="sample-mark{low}">{escape(text)}</mark>'
