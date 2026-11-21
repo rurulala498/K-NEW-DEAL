@@ -103,7 +103,7 @@
             },
             "amount": {
               "value": 0,
-              "confidence": "high"
+              "confidence": "low"
             },
             "category": {
               "value": "weekly_holiday_pay",
