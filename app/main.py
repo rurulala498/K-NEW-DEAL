@@ -1,13 +1,19 @@
 import json
+import sys
 from pathlib import Path
 
 import streamlit as st
+
+# Streamlit Cloud adds the script directory to Python's import path.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.results import show_results
 from app.review import review_form
 from engine import run_engine
 
-FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+FIXTURES = PROJECT_ROOT / "tests" / "fixtures"
 SAMPLES = {"정상 지급": "normal_case.json", "주휴수당 미지급": "review_case.json"}
 DISCLAIMER = "법률 자문이 아니며 최종 판단은 관계 기관에서 이루어집니다."
 
