@@ -16,6 +16,7 @@ T = TypeVar("T")
 class ExtractedField(BaseModel, Generic[T]):
     value: T | None
     confidence: Confidence
+    source_text: str | None = None
 
 
 class SpecialTerm(BaseModel):

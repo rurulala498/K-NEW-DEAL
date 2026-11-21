@@ -1,0 +1,145 @@
+{
+  "contract": {
+    "hourly_wage": {
+      "value": 10000,
+      "confidence": "high"
+    },
+    "daily_hours": {
+      "value": 5,
+      "confidence": "high"
+    },
+    "weekly_hours": {
+      "value": 20,
+      "confidence": "high"
+    },
+    "work_days": {
+      "value": [
+        "월",
+        "화",
+        "목",
+        "금"
+      ],
+      "confidence": "high"
+    },
+    "work_start": {
+      "value": "09:00",
+      "confidence": "high"
+    },
+    "work_end": {
+      "value": "14:30",
+      "confidence": "high"
+    },
+    "break_minutes": {
+      "value": 30,
+      "confidence": "high"
+    },
+    "contract_start": {
+      "value": "2026-12-01",
+      "confidence": "high"
+    },
+    "contract_end": {
+      "value": "2026-12-31",
+      "confidence": "high"
+    },
+    "pay_day": {
+      "value": "다음 달 10일",
+      "confidence": "high"
+    },
+    "pay_method": {
+      "value": "계좌이체",
+      "confidence": "high"
+    },
+    "holidays": {
+      "value": null,
+      "confidence": "low"
+    },
+    "annual_leave": {
+      "value": null,
+      "confidence": "low"
+    },
+    "workplace": {
+      "value": "가상 예시 사업장",
+      "confidence": "high"
+    },
+    "job_description": {
+      "value": null,
+      "confidence": "low"
+    },
+    "special_terms": {
+      "value": [
+        {
+          "text": {
+            "value": "계약기간 중 퇴사하면 위약금 50,000원을 부담한다.",
+            "confidence": "high"
+          },
+          "type": {
+            "value": "penalty",
+            "confidence": "high"
+          }
+        }
+      ],
+      "confidence": "high"
+    }
+  },
+  "payslip": {
+    "pay_period_start": {
+      "value": "2026-12-01",
+      "confidence": "high"
+    },
+    "pay_period_end": {
+      "value": "2026-12-31",
+      "confidence": "high"
+    },
+    "items": {
+      "value": [
+        {
+          "name": {
+            "value": "기본급",
+            "confidence": "high"
+          },
+          "amount": {
+            "value": 869000,
+            "confidence": "high"
+          },
+          "category": {
+            "value": "base_pay",
+            "confidence": "high"
+          }
+        },
+        {
+          "name": {
+            "value": "주휴수당",
+            "confidence": "high"
+          },
+          "amount": {
+            "value": 0,
+            "confidence": "low"
+          },
+          "category": {
+            "value": "weekly_holiday_pay",
+            "confidence": "high"
+          }
+        },
+        {
+          "name": {
+            "value": "기타 조정액",
+            "confidence": "high"
+          },
+          "amount": {
+            "value": 12000,
+            "confidence": "high"
+          },
+          "category": {
+            "value": "unclassified",
+            "confidence": "low"
+          }
+        }
+      ],
+      "confidence": "high"
+    },
+    "total_paid": {
+      "value": 881000,
+      "confidence": "high"
+    }
+  }
+}
