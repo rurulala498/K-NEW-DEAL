@@ -16,6 +16,7 @@ DOCS = APP.parents[1] / "tests" / "fixtures" / "docs"
 def ready_app(monkeypatch, settings):
     monkeypatch.setattr(upload, "read_settings", lambda: settings)
     app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     assert not app.exception
     return app

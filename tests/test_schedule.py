@@ -133,6 +133,7 @@ def open_schedule_review(monkeypatch):
     monkeypatch.setattr(upload, "read_settings", lambda: SETTINGS)
     monkeypatch.setattr(extract, "ExtractionClient", lambda settings: ScheduleClient())
     app = AppTest.from_file(str(ROOT / "app" / "main.py"), default_timeout=20).run()
+    app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     fixture = ROOT / "tests" / "fixtures" / "docs" / "schedule_contract.pdf"
     app.file_uploader[0].upload(fixture.name, fixture.read_bytes(), "application/pdf").run()

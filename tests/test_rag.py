@@ -33,6 +33,7 @@ def review_app(monkeypatch, store):
     monkeypatch.setattr(rag, "default_store", lambda: store)
     monkeypatch.setattr(upload, "read_settings", lambda: ApiSettings("", ""))
     app = AppTest.from_file(str(ROOT / "app" / "main.py"), default_timeout=20).run()
+    app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     app.button(key="show-sample-demo").click().run()
     app.button(key="sample-review_case").click().run()

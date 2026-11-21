@@ -386,6 +386,7 @@ def test_eval_defaults_offline_and_uses_a_shared_live_budget(monkeypatch, capsys
 
 def ready_sample():
     app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     app.button(key="show-sample-demo").click().run()
     app.button(key="sample-review_case").click().run()

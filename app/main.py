@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.components.help_panel import CHAT_EDIT_REQUEST
 from app.components.shell import footer, reset_scroll, top_bar
+from app.steps.landing import landing_step
 from app.steps.result import show_result
 from app.steps.review import review_step
 from app.steps.upload import ReviewDraft, upload_step
@@ -27,12 +28,14 @@ def main():
     st.set_page_config(page_title="받았수당 · 내 급여 영수증", page_icon=str(FAVICON), layout="wide")
     st.html(STYLE)
     store = default_store()
-    step = st.session_state.get("step", 1)
+    step = st.session_state.get("step", 0)
     top_bar(step)
     if st.session_state.pop("scroll_on_show", False):
         reset_scroll()
 
-    if step == 1:
+    if step == 0:
+        landing_step(store)
+    elif step == 1:
         adding_payslip = st.session_state.get("adding_payslip", False)
         draft = upload_step(adding_payslip=adding_payslip)
         if draft:

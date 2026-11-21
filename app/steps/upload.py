@@ -4,6 +4,7 @@ from pathlib import Path
 import streamlit as st
 
 from app.components.documents import receipt_preview
+from app.components.shell import scroll_to_example_cards
 from llm.client import ExtractionRequestError, configuration_message, read_settings
 from llm.documents import DocumentReadError, DocumentTexts, SUPPORTED_SUFFIXES, TEXT_REQUIRED, read_document
 from llm.extract import ExtractionOutcome, blank_result, extract_documents, extract_sample
@@ -166,6 +167,8 @@ def upload_step(*, adding_payslip: bool = False) -> ReviewDraft | None:
             st.rerun()
         return None
 
+    if st.session_state.pop("scroll_to_examples", False):
+        scroll_to_example_cards()
     with st.container(key="sample-demo"):
         is_open = st.session_state.get("examples_open", False)
         st.button("예시 접기" if is_open else "예시로 체험하기", key="show-sample-demo",

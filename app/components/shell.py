@@ -25,7 +25,7 @@ def svg_uri(name: str) -> str:
 def begin_check(examples: bool = False):
     st.session_state.update(step=1, scroll_on_show=True)
     if examples:
-        st.session_state.scroll_to_examples = True
+        st.session_state.update(examples_open=True, scroll_to_examples=True)
 
 
 def _progress(step: int) -> str:
@@ -94,6 +94,20 @@ def reset_scroll():
     st.html(
         """<script>
         requestAnimationFrame(() => document.querySelector('[data-testid="stMain"]')?.scrollTo(0, 0));
+        </script>""",
+        unsafe_allow_javascript=True,
+    )
+
+
+def scroll_to_example_cards():
+    st.html(
+        """<script>
+        function scrollToExamples(remaining) {
+            const cards = document.querySelector('.st-key-sample-demo');
+            if (cards) cards.scrollIntoView({ block: 'start' });
+            else if (remaining) requestAnimationFrame(() => scrollToExamples(remaining - 1));
+        }
+        requestAnimationFrame(() => scrollToExamples(20));
         </script>""",
         unsafe_allow_javascript=True,
     )

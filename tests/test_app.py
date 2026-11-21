@@ -31,6 +31,7 @@ def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, n
     assert not app.metric
     check_footer(app)
 
+    app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     assert len(app.get("file_uploader")) == 2
     assert not any(button.key == f"sample-{sample}" for button in app.button)
@@ -70,6 +71,7 @@ def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, n
 
 def test_edited_input_is_calculated_and_restart_clears_previous_result():
     app = start()
+    app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     app.button(key="show-sample-demo").click().run()
     app.button(key="sample-normal_case").click().run()
@@ -88,6 +90,7 @@ def test_edited_input_is_calculated_and_restart_clears_previous_result():
     assert not app.get("file_uploader")
     assert "result" not in app.session_state
     check_footer(app)
+    app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     app.button(key="show-sample-demo").click().run()
     app.button(key="sample-normal_case").click().run()
@@ -114,6 +117,7 @@ def test_contract_only_receipt_shows_both_wage_bases_without_payment_columns():
 
 def test_invalid_wage_keeps_review_step_and_names_the_field():
     app = start()
+    app.button(key="begin-check").click().run()
     app.button(key="consent").click().run()
     app.button(key="show-sample-demo").click().run()
     app.button(key="sample-normal_case").click().run()
@@ -147,3 +151,18 @@ def test_review_displays_gross_total_hint_and_submits_legacy_times():
     assert app.session_state.confirmed.payslip.total_paid.value == 869000
     assert app.session_state.confirmed.contract.work_start.value.tzinfo is None
     assert app.metric[0].value == "1,076,170원"
+
+
+def test_landing_shows_calculated_example_and_routes_to_consent():
+    app = start()
+    landing = " ".join(row.proto.body for row in app.get("html"))
+    assert "일한 만큼," in landing and "가상 서류로 만든 예시 화면이에요." in landing
+    assert "1,076,170원" in landing and "207,170원" in landing
+    assert not app.get("file_uploader")
+
+    app.button(key="hero-examples").click().run()
+    assert not app.get("file_uploader")
+    app.button(key="consent").click().run()
+    assert app.button(key="sample-review_case")
+    app.button(key="brand-home").click().run()
+    assert app.button(key="hero-check") and not app.get("file_uploader")
