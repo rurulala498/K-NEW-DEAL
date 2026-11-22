@@ -175,6 +175,7 @@ def test_landing_shows_calculated_example_and_routes_to_consent(monkeypatch):
     markup = " ".join(row.proto.body for row in app.get("html"))
     assert "일한 만큼," in markup and "가상 서류로 만든 예시 화면이에요." in markup
     assert "1,076,170원" in markup and "207,170원" in markup
+    assert "<span>2026 대한민국 청년 CAREER FAIR AI 해커톤 출품작</span>" in markup
     assert not app.get("file_uploader")
 
     app.button(key="hero-examples").click().run()

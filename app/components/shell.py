@@ -69,7 +69,7 @@ def footer(step: int):
         with st.container(key="landing-footer"):
             st.html(
                 f'<div class="footer-brand"><img src="{svg_uri("logo-horizontal.svg")}" alt="받았수당">'
-                '<span>2026 대한민국 청년 CAREER FAIR AI 해커톤 출품작 · [팀명]</span>'
+                '<span>2026 대한민국 청년 CAREER FAIR AI 해커톤 출품작</span>'
                 '<a href="https://www.law.go.kr/" target="_blank" rel="noopener noreferrer">'
                 '법령 출처: 국가법령정보센터</a></div>'
             )
