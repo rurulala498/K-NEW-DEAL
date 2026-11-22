@@ -1,1 +1,37 @@
-[]
+[
+  {
+    "name": "고용노동부 고객상담센터",
+    "contact": "국번 없이 1350 (평일 9~18시, 통화료 부과)",
+    "url": "https://www.moel.go.kr/agency/org/our/list.do",
+    "what_for": "임금체불 같은 노동 문제를 전화로 상담받을 수 있어요",
+    "checked_date": "2026-11-22"
+  },
+  {
+    "name": "고용노동부 AI 노동법 상담",
+    "contact": "온라인 상담 (24시간)",
+    "url": "https://ai.moel.go.kr/",
+    "what_for": "임금·근로시간 궁금증을 AI에게 바로 물어볼 수 있어요",
+    "checked_date": "2026-11-22"
+  },
+  {
+    "name": "고용노동부 임금체불 진정",
+    "contact": "노동포털 온라인 신청 (방문·우편도 가능)",
+    "url": "https://labor.moel.go.kr/minwonApply/minwonFormat.do?searchVal=SN001",
+    "what_for": "못 받은 임금을 받도록 노동청에 진정을 낼 수 있어요",
+    "checked_date": "2026-11-22"
+  },
+  {
+    "name": "대한법률구조공단",
+    "contact": "국번 없이 132 (평일 9~17:50, 점심 제외)",
+    "url": "https://www.klac.or.kr/legalstruct/telephoneConsultation.do",
+    "what_for": "무료 법률 상담과 체불임금 소송 지원을 안내받을 수 있어요",
+    "checked_date": "2026-11-22"
+  },
+  {
+    "name": "근로복지공단 대지급금 안내",
+    "contact": "1588-0075 (평일 9~18시)",
+    "url": "https://welfare.comwel.or.kr/default/page.do?mCode=H030010000",
+    "what_for": "회사가 임금을 못 줄 때 나라가 대신 주는 제도를 알아볼 수 있어요",
+    "checked_date": "2026-11-22"
+  }
+]
