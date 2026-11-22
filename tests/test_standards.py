@@ -19,15 +19,23 @@ def test_load_2026_standards():
     assert standards["premium_min_workplace_size"] == {"value": 5, "verified": True}
     assert standards["night_work_hours"] == {
         "value": {"start": "22:00", "end": "06:00"},
-        "verified": False,
+        "verified": True,
     }
     assert standards["premium_rate"] == {
         "value": Decimal("0.5"),
-        "verified": False,
+        "verified": True,
     }
     assert standards["weeks_per_month"] == {
         "value": Decimal("4.345"),
         "verified": False,
+    }
+    assert standards["weekly_holiday_hours"] == {
+        "value": {"full_time_weekly": 40, "max_hours": 8},
+        "verified": False,
+    }
+    assert standards["overtime_hours"] == {
+        "value": {"daily": 8, "weekly": 40},
+        "verified": True,
     }
     assert standards["part_time_overtime"]["value"] is None
     assert standards["part_time_overtime"]["verified"] is False

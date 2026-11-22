@@ -21,11 +21,11 @@
   },
   "night_work_hours": {
     "value": {"start": "22:00", "end": "06:00"},
-    "verified": false
+    "verified": true
   },
   "premium_rate": {
     "value": 0.5,
-    "verified": false
+    "verified": true
   },
   "weeks_per_month": {
     "value": 4.345,
@@ -37,7 +37,7 @@
   },
   "overtime_hours": {
     "value": {"daily": 8, "weekly": 40},
-    "verified": false
+    "verified": true
   },
   "comparison_tolerance_won": {
     "value": 100,

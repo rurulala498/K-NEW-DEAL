@@ -51,6 +51,9 @@ def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, n
 
     assert not app.exception
     assert app.metric[0].value == monthly_total
+    assert any(row.value == "미검증 기준 3개" for row in app.caption)
+    assert any(row.value == "**기준 확인 필요** · 주휴수당, 단시간 근로자 연장 가산, 월 환산 방식"
+               for row in app.markdown)
     assert any(row.label == "항목별 근거·금액 그래프 보기" for row in app.expander)
     assert any(row.value == "사장님께 보낼 문구" for row in app.subheader) is needs_review
     receipt = next(row.proto.body for row in app.get("html") if '<table class="pay-table">' in row.proto.body)

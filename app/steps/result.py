@@ -56,7 +56,10 @@ def _expected_section(scenarios: list[WorkplacePay], store: RagStore, explanatio
 def _standards(result: EngineResult, store: RagStore, explanation: explain.Explained):
     years = sorted({row.standards_year for scenario in result.expected_pay for row in scenario.items})
     year_text = ", ".join(f"{year}년" for year in years) or "기준 연도 정보 없음"
-    unverified = list(dict.fromkeys(row.item for row in result.limitations if row.reason == "기준 확인 필요"))
+    unverified = list(dict.fromkeys(
+        "월 환산 방식" if row.item.endswith("(월)") else row.item
+        for row in result.limitations if row.reason == "기준 확인 필요"
+    ))
     notes = [row for row in result.limitations if row.reason != "기준 확인 필요"]
     st.html('<div id="report-standards"></div>')
     label = f"계산 기준 · {year_text} 기준값, 개근 가정"
