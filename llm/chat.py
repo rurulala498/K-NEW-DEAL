@@ -6,10 +6,12 @@ from unicodedata import normalize
 
 from pydantic import ValidationError
 
+from app.format import WORKPLACE_LABELS, won
 from llm.chat_web import ChatClient, WebLookup, WebSearchUnavailable
 from llm.client import ApiSettings, ExtractionRequestError, TokenUsage, configuration_message
 from llm.explain import ExplanationContext, _confirmed_numeric_facts
 from llm.guards import NumericFacts, PAYSLIP_LANGUAGE, private_text, safety_issue, sentences
+from rag.basis_map import TERM_BASIS, pay_basis_keys
 from rag.store import RagStore
 from schemas.chat import AnswerType, ChatAnswer
 from schemas.engine import ComparisonItem, ExpectedPayItem, ExpectedPayScenario, PayBasis
@@ -149,10 +151,40 @@ class ChatSession:
             self.context_key = context_key
 
 
-def plan_question(question: str, store: RagStore) -> QuestionPlan:
+def _pay_sources(
+    store: RagStore, item: str, scenarios: list[ExpectedPayScenario] | None,
+) -> tuple[ChatSource, ...]:
+    items = (item,) if scenarios is None else dict.fromkeys(
+        row.item for scenario in scenarios for row in scenario.items if item == "합계" or row.item == item
+    )
+    # The total's own evidence key concerns payment procedure. Its calculation uses the component keys.
+    keys = dict.fromkeys(key for name in items if name != "합계" for key in pay_basis_keys(name))
+    laws = [store.get_law(key) for key in keys]
+    terms = [store.get_term(name) for name, related in TERM_BASIS.items() if keys.keys() & related]
+    return tuple(ChatSource(record) for record in (*laws, *terms) if record is not None)
+
+
+def plan_question(
+    question: str, store: RagStore, *, expected_pay: list[ExpectedPayScenario] | None = None,
+) -> QuestionPlan:
     scored = [hit for hit in store.search(question, k=8) if hit.score >= MIN_SEARCH_SCORE]
     terms = [hit for hit in scored if isinstance(hit.record, TermRecord)]
     term_question = bool(terms and TERM_INTENT.search(question))
+    if OUTSIDE_TOPICS.search(question) or UNRELATED_TOPICS.search(question):
+        answer_type = "out_of_scope"
+    elif CHANGED_INPUT.search(question) and AMOUNT_INTENT.search(question):
+        answer_type = "hypothetical"
+    elif term_question:
+        answer_type = "term"
+    else:
+        pay_item = next((item for item, pattern in PAY_TOPICS if pattern.search(question)), None)
+        if RECEIPT_REFERENCE.search(question) or (
+            PERSONAL_REFERENCE.search(question) and AMOUNT_INTENT.search(question)
+        ) or (pay_item and ITEM_MONEY_REASON.search(question)):
+            item = pay_item or "합계"
+            return QuestionPlan("personal_amount", _pay_sources(store, item, expected_pay), item)
+        answer_type = "law"
+
     sources = {}
     for hit in scored:
         # A definition has one primary term. A shorter alias can match inside that term's full name.
@@ -173,19 +205,7 @@ def plan_question(question: str, store: RagStore) -> QuestionPlan:
                             linked_term = ChatSource(term)
                             sources.setdefault(linked_term.id, linked_term)
 
-    evidence = tuple(sources.values())
-    if OUTSIDE_TOPICS.search(question) or UNRELATED_TOPICS.search(question):
-        return QuestionPlan("out_of_scope", evidence)
-    if CHANGED_INPUT.search(question) and AMOUNT_INTENT.search(question):
-        return QuestionPlan("hypothetical", evidence)
-    if term_question:
-        return QuestionPlan("term", evidence)
-    pay_item = next((item for item, pattern in PAY_TOPICS if pattern.search(question)), None)
-    if RECEIPT_REFERENCE.search(question) or (
-        PERSONAL_REFERENCE.search(question) and AMOUNT_INTENT.search(question)
-    ) or (pay_item and ITEM_MONEY_REASON.search(question)):
-        return QuestionPlan("personal_amount", evidence, pay_item or "합계")
-    return QuestionPlan("law", evidence)
+    return QuestionPlan(answer_type, tuple(sources.values()))
 
 
 def suggestions(context: ExplanationContext, store: RagStore) -> tuple[str, ...]:
@@ -198,7 +218,9 @@ def suggestions(context: ExplanationContext, store: RagStore) -> tuple[str, ...]
             choices[CHECK_QUESTIONS[item.title]] = None
         elif isinstance(row, ComparisonItem):
             label = "급여 차이" if item.title == "합계" else item.title
-            choices[f"내 {label}은 어떻게 계산됐어요?"] = None
+            final = label[-1]
+            particle = "은" if "가" <= final <= "힣" and (ord(final) - ord("가")) % 28 else "는"
+            choices[f"내 {label}{particle} 어떻게 계산됐어요?"] = None
     for question in (
         "내 예상 급여는 어떻게 계산됐어요?", *(f"{term}이 뭐예요?" for term in terms[1:]),
         "휴게시간은 어떤 기준으로 확인해요?", "근로계약서에는 무엇을 적어야 해요?",
@@ -219,15 +241,14 @@ def _build_payload(question: str, plan: QuestionPlan, context: ExplanationContex
     else:
         engine["limitations"] = [row for row in engine["limitations"] if row["item"] != "지급액 대조"]
 
-    if plan.pay_item:
+    if plan.pay_item and plan.pay_item != "합계":
         engine["expected_pay"] = [
             {**group, "items": [item for item in group["items"] if item["item"] == plan.pay_item]}
             for group in engine["expected_pay"] if any(item["item"] == plan.pay_item for item in group["items"])
         ]
         if documents["payslip"]:
             engine["comparison"] = [row for row in engine["comparison"] if row["item"] == plan.pay_item]
-            if plan.pay_item != "합계":
-                engine.pop("cause_breakdown")
+            engine.pop("cause_breakdown")
 
     return {
         "question": question, "question_type": plan.answer_type, "confirmed": confirmed,
@@ -267,7 +288,47 @@ def _calculation_rows(scenarios: list[ExpectedPayScenario], item: str | None) ->
         return ()
     return tuple(
         Calculation(row, scenario.basis, scenario.workplace_size)
-        for scenario in scenarios for row in scenario.items if row.item == item
+        for scenario in scenarios for row in scenario.items if item == "합계" or row.item == item
+    )
+
+
+def _amount_fallback(
+    question: str, context: ExplanationContext, plan: QuestionPlan, calculations: tuple[Calculation, ...],
+    issues: tuple[str, ...], usage: tuple[TokenUsage, ...] = (),
+) -> ChatReply:
+    scenarios = context.result.expected_pay
+    multiple_sizes = len({scenario.workplace_size for scenario in scenarios}) > 1
+
+    def scenario_label(size: KnownWorkplaceSize | None, basis: PayBasis) -> str:
+        prefix = f"{WORKPLACE_LABELS[size]}인 경우 " if multiple_sizes and size else ""
+        return prefix + ("최저임금 기준으로 계산하면" if basis == "minimum_wage" else "계약 시급 기준으로")
+
+    parts = []
+    for scenario in scenarios:
+        amounts = ", ".join(
+            f"{row.item} {won(row.amount)}" for row in scenario.items
+            if row.period == "monthly" and (
+                row.item == plan.pay_item or (plan.pay_item == "합계" and row.amount != 0)
+            )
+        )
+        if amounts:
+            label = scenario_label(scenario.workplace_size, scenario.basis)
+            parts.append(f"{label} 한 달 {amounts}으로 계산했어요.")
+
+    payslip = context.payload["confirmed"]["documents_provided"]["payslip"]
+    if payslip and (re.search(r"차이|차액", question) or ACTUAL_PAY_QUESTION.search(question) or PAYSLIP_LANGUAGE.search(question)):
+        for row in context.result.comparison:
+            if row.item == plan.pay_item and row.actual is not None and row.difference is not None:
+                label = scenario_label(row.workplace_size, row.basis)
+                parts.append(f"{label} {row.item}의 실제 지급액은 {won(row.actual)}이고 차이는 {won(row.difference)}이에요.")
+
+    if not parts:
+        parts.append("이 항목의 금액을 계산하려면 내용 확인에서 계약 값을 확인해 주세요.")
+    if calculations:
+        parts.append("아래 ‘엔진 계산식 보기’에서 식을 확인할 수 있어요.")
+    return ChatReply(
+        " ".join(parts), "personal_amount", plan.sources, calculations,
+        validation="fallback", issues=issues, usage=usage,
     )
 
 
@@ -332,6 +393,8 @@ def _request_answer(
         return ChatReply(model.answer.strip(), plan.answer_type, sources, calculations, model.needs_official_check,
                          validation="passed", issues=tuple(issues), usage=tuple(usage))
 
+    if plan.answer_type == "personal_amount":
+        return _amount_fallback(question, context, plan, calculations, tuple(issues), tuple(usage))
     return ChatReply(NO_ANSWER, plan.answer_type, plan.sources, calculations, needs_official_check=True,
                      validation="fallback", issues=tuple(issues), usage=tuple(usage))
 
@@ -366,7 +429,7 @@ def _search_reference(
 def _respond(
     question: str, context: ExplanationContext, store: RagStore, settings: ApiSettings, session: ChatSession, client,
 ) -> ChatReply:
-    plan = plan_question(question, store)
+    plan = plan_question(question, store, expected_pay=context.result.expected_pay)
     if plan.answer_type == "hypothetical":
         return ChatReply(CHANGE_VALUES, plan.answer_type)
     payslip = context.payload["confirmed"]["documents_provided"]["payslip"]
@@ -381,13 +444,15 @@ def _respond(
         return ChatReply(answer, plan.answer_type, needs_official_check=True, web=web,
                          validation="web" if web is not None else "fallback", issues=issues, usage=usage)
 
-    calculations = _calculation_rows(context.result.expected_pay, plan.pay_item)
-    if notice := configuration_message(settings):
-        return ChatReply(NO_ANSWER, plan.answer_type, plan.sources, calculations,
+    notice = configuration_message(settings)
+    if plan.answer_type == "personal_amount":
+        calculations = _calculation_rows(context.result.expected_pay, plan.pay_item)
+        if notice or not calculations:
+            issues = (notice or "해당 급여 항목의 엔진 계산식 없음",)
+            return _amount_fallback(question, context, plan, calculations, issues)
+    if notice:
+        return ChatReply(NO_ANSWER, plan.answer_type, plan.sources,
                          needs_official_check=True, validation="fallback", issues=(notice,))
-    if plan.answer_type == "personal_amount" and not calculations:
-        return ChatReply(NO_ANSWER, plan.answer_type, plan.sources, needs_official_check=True,
-                         validation="fallback", issues=("해당 급여 항목의 엔진 계산식 없음",))
     return _request_answer(question, plan, context, client if client is not None else ChatClient(settings))
 
 

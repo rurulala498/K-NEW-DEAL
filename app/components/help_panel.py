@@ -17,10 +17,14 @@ def _chat_reply(reply: chat.ChatReply, store: RagStore, *, show_official_help: b
     chat_evidence(tuple(source.record for source in reply.sources))
     if reply.calculations:
         with st.expander("엔진 계산식 보기"):
+            previous_scope = None
             for entry in reply.calculations:
                 row = entry.row
                 period = "주" if row.period == "weekly" else "월"
-                st.caption(f"{WORKPLACE_LABELS[entry.workplace_size]} · {PAY_BASIS_LABELS[entry.basis]} · {row.standards_year}년 기준")
+                scope = (entry.workplace_size, entry.basis, row.standards_year)
+                if scope != previous_scope:
+                    st.caption(f"{WORKPLACE_LABELS[entry.workplace_size]} · {PAY_BASIS_LABELS[entry.basis]} · {row.standards_year}년 기준")
+                    previous_scope = scope
                 st.text(f"{row.item} · {period} {won(row.amount)}")
                 st.text(row.formula)
     if reply.web:

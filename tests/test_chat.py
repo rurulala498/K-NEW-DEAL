@@ -13,7 +13,7 @@ from llm import chat, explain
 from llm import client as api_client
 from llm.chat_web import ChatClient, OFFICIAL_DOMAINS, WebLookup, WebSearchUnavailable, WebSource
 from llm.client import ApiSettings, ModelReply, TokenUsage, read_settings
-from rag.store import RagStore, default_store
+from rag.store import RagStore, SearchHit, default_store
 from schemas.chat import ChatAnswer
 from schemas.extraction import SpecialTerm
 from schemas.rag import HelpChannel, LawRecord
@@ -109,6 +109,86 @@ def test_structured_replies_use_relevant_evidence_or_engine_formula(question, ki
                                if item.row.period == "weekly" and item.basis == "contract")
         assert weekly_contract.formula == "min(20 ÷ 40 × 8, 8) × 10000"
         assert {row["item"] for row in payload["engine_result"]["comparison"]} == {"주휴수당"}
+        assert {row["item"] for scenario in payload["engine_result"]["expected_pay"] for row in scenario["items"]} == {"주휴수당"}
+        assert {row["id"] for row in payload["evidence"]} >= {"law:weekly_holiday_pay", "term:주휴수당"}
+        assert "law:minimum_wage" not in {row["id"] for row in payload["evidence"]}
+
+
+def test_total_question_sends_itemized_amounts_and_uses_pay_evidence(monkeypatch):
+    context, store, session = setup()
+    question = "내 예상 급여는 어떻게 계산됐어요?"
+    unrelated = [SearchHit(store.get_law("wage_deduction"), 20), SearchHit(store.get_term("임금명세서"), 19)]
+    monkeypatch.setattr(store, "search", lambda question, k: unrelated)
+    text = "월 기본급은 869,000원이고 월 주휴수당은 173,800원이에요. 계약 시급 기준 월 합계는 1,042,800원이에요."
+    fake = FakeClient(response("personal_amount", ("law:weekly_holiday_pay", "law:wage_deduction"), answer=text))
+    reply = chat.ask(question, context, store, SETTINGS, session, client=fake)
+
+    assert reply.validation == "passed" and reply.answer == text
+    payload = fake.calls[0][1]
+    for field in ("expected_pay", "comparison", "cause_breakdown"):
+        assert payload["engine_result"][field] == context.payload[field]
+    assert len(payload["engine_result"]["expected_pay"]) == 2
+    assert {entry.row.item for entry in reply.calculations} == {"기본급", "주휴수당", "연장 가산", "야간 가산", "합계"}
+    ids = {row["id"] for row in payload["evidence"]}
+    assert ids >= {"law:minimum_wage", "law:weekly_holiday_pay", "law:overtime_night", "term:주휴수당"}
+    assert ids.isdisjoint({"law:wage_deduction", "law:wage_payment", "term:임금 공제", "term:임금명세서"})
+    assert [source.id for source in reply.sources] == ["law:weekly_holiday_pay"]
+    assert reply.issues == ("제공되지 않은 근거 ID 제거",)
+
+
+def test_amount_suggestions_choose_the_correct_topic_particle():
+    context, store, _ = setup()
+    basic_item, basic_row = next((item, row) for item, row in zip(context.items, context.rows) if item.title == "기본급")
+    total_row = next(row for row in context.result.comparison if row.item == "합계")
+    context = replace(context, items=[basic_item, basic_item._replace(title="합계")], rows=[basic_row, total_row])
+    suggestions = chat.suggestions(context, store)
+    assert "내 급여 차이는 어떻게 계산됐어요?" in suggestions
+    assert "내 기본급은 어떻게 계산됐어요?" in suggestions
+
+
+@pytest.mark.parametrize("case", ("normal_case", "review_case", "contract_only"))
+def test_recommendations_use_engine_fallback_after_two_invalid_amount_answers(case):
+    context, store, session = setup(case)
+    total_question = "내 예상 급여는 어떻게 계산됐어요?"
+    invalid = response("personal_amount", (), answer="예상 급여는 777,777원이에요. 월 금액으로 비교했어요.")
+    for question in dict.fromkeys((*chat.suggestions(context, store), total_question)):
+        plan = chat.plan_question(question, store, expected_pay=context.result.expected_pay)
+        if plan.answer_type == "personal_amount":
+            fake = FakeClient(invalid, invalid)
+        else:
+            citation = next(source.id for source in plan.sources if plan.answer_type != "term" or source.id.startswith("term:"))
+            fake = FakeClient(response(plan.answer_type, (citation,)))
+        reply = chat.ask(question, context, store, SETTINGS, session, client=fake)
+
+        assert "찾지 못했어요" not in reply.answer
+        if plan.answer_type != "personal_amount":
+            assert reply.validation == "passed"
+            continue
+        assert reply.validation == "fallback" and len(fake.calls) == 2
+        assert reply.issues == ("입력에 없는 숫자", "입력에 없는 숫자")
+        assert "엔진 계산식 보기" in reply.answer
+        assert not reply.needs_official_check
+        payload = fake.calls[0][1]
+        facts = chat._numeric_facts(payload)
+        assert chat._answer_safety(reply.answer, facts, payslip=case != "contract_only", workplace=context.workplace) is None
+        if question == total_question:
+            assert "월" in " ".join(entry.row.applied_condition for entry in reply.calculations)
+            assert "기본급" in reply.answer and "주휴수당" in reply.answer and "합계" in reply.answer
+            if case == "normal_case":
+                assert "912,450원" in reply.answer and "1,094,940원" in reply.answer
+            else:
+                assert "869,000원" in reply.answer and "1,042,800원" in reply.answer
+                assert "최저임금 기준으로 계산하면" in reply.answer and "1,076,170원" in reply.answer
+
+
+def test_amount_fallback_explains_the_difference_with_engine_values_when_requested():
+    context, store, session = setup()
+    fake = FakeClient(None, None)
+    reply = chat.ask("내 급여 차이는 어떻게 계산됐어요?", context, store, SETTINGS, session, client=fake)
+
+    assert reply.issues == ("응답 형식 오류", "응답 형식 오류")
+    assert "실제 지급액은 869,000원이고 차이는 207,170원" in reply.answer
+    assert reply.validation == "fallback"
 
 
 def test_input_payload_uses_an_allowlist_and_only_retrieved_documents():
@@ -417,6 +497,22 @@ def test_app_sample_chat_shows_real_response_and_sources_with_fake_api(monkeypat
     assert not app.exception
     session = app.session_state[chat.SESSION_KEY]
     assert not session.history and session.questions_used == 1
+
+
+def test_app_chat_displays_engine_fallback_without_an_ai_label(monkeypatch):
+    invalid = response("personal_amount", (), answer="급여는 777,777원이에요. 계산식을 확인해 보세요.")
+    fake = FakeClient(invalid, invalid)
+    monkeypatch.setattr(explain, "read_settings", lambda: SETTINGS)
+    monkeypatch.setattr(chat, "ChatClient", lambda settings: fake)
+    app = ready_sample()
+    app.text_input(key="receipt-chat-input").set_value("내 예상 급여는 어떻게 계산됐어요?")
+    next(button for button in app.form_submit_button if button.label == "질문 보내기").click().run()
+
+    assert not app.exception
+    assert len(fake.calls) == 2
+    assert any("합계 1,042,800원" in row.value and "합계 1,076,170원" in row.value for row in app.text)
+    assert any(row.label == "엔진 계산식 보기" for row in app.expander)
+    assert not any(row.value == "AI가 작성한 답변이에요" for row in app.caption)
 
 
 def test_app_sample_hypothetical_answer_opens_confirmed_inputs_again():
