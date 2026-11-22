@@ -268,9 +268,8 @@ html, body, [data-testid="stAppViewContainer"] {
 .evidence-chips { display: block; }
 .evidence-chips > * + * { margin-top: 0.35rem; }
 .rag-detail { padding: 0.45rem 0 0.2rem; }
-.rag-article + .rag-article,
-.rag-help + .rag-help { border-top: 1px solid var(--line); margin-top: 0.7rem; padding-top: 0.45rem; }
-.rag-article h4, .rag-help h4 { font-size: 0.95rem; margin: 0 0 0.3rem; }
+.rag-article + .rag-article { border-top: 1px solid var(--line); margin-top: 0.7rem; padding-top: 0.45rem; }
+.rag-article h4 { font-size: 0.95rem; margin: 0 0 0.3rem; }
 .rag-original { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 0.86rem; line-height: 1.65; padding: 0.6rem 0; margin: 0; }
 .rag-source, .rag-pending { font-size: 0.78rem; color: var(--muted); }
 .st-key-report-help { background: var(--paper); border-color: var(--line); border-radius: 1rem; }
@@ -543,14 +542,31 @@ html, body, [data-testid="stAppViewContainer"] {
 .message-copy button:disabled { opacity: 0.55; cursor: default; }
 .copy-status:not(:empty) { display: block; margin-top: 0.3rem; color: var(--muted); font-size: 0.78rem; }
 .st-key-employer-panel textarea { min-height: 8.5rem; }
-.st-key-report-help [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child [data-testid="stButton"] { display: flex; justify-content: flex-end; }
+.st-key-report-help [data-testid="stHorizontalBlock"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.st-key-report-help [data-testid="stColumn"] { width: auto !important; min-width: 0; }
 .st-key-report-help h3 { font-size: 1.13rem; padding: 0; }
+.help-channel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.65rem; }
+.help-channel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  overflow-wrap: anywhere;
+}
+.help-channel-card h4 { font-size: 0.95rem; font-weight: 750; margin: 0; padding: 0; }
+.help-channel-card p { font-size: 0.86rem; margin: 0; }
+.help-channel-card footer { margin-top: auto; padding-top: 0.35rem; font-size: 0.85rem; }
+.help-channel-card small { display: block; color: var(--muted); font-size: 0.75rem; }
+.chat-help-links { margin: 0; padding-inline-start: 1.1rem; font-size: 0.81rem; overflow-wrap: anywhere; }
 @media (max-width: 1024px) {
   .st-key-report-split > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child { position: static; }
   .st-key-report-support { max-height: none; overflow-y: visible; }
-  .st-key-report-help [data-testid="stHorizontalBlock"] { flex-direction: column; gap: 0.45rem; }
-  .st-key-report-help [data-testid="stColumn"] { width: 100% !important; }
-  .st-key-report-help [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child [data-testid="stButton"] { justify-content: flex-start; }
 }
 @media (max-width: 640px) {
   .report-summary-note { text-align: left; }

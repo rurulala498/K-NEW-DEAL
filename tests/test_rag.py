@@ -224,6 +224,24 @@ def test_result_uses_fixture_terms_laws_and_help_channels(monkeypatch):
     assert any(heading.value == "더 확인하고 싶다면" for heading in app.subheader)
 
 
+def test_result_help_cards_show_all_fields_with_safe_links(monkeypatch):
+    fixture = rag.load_store(RAG_FIXTURES).help_channels[0]
+    channel = fixture.model_copy(update={
+        "name": "테스트 <상담>", "contact": "전화 & 채팅", "what_for": "급여 <확인>",
+        "url": "https://example.com/test/help?a=1&b=2",
+    })
+    app = review_app(monkeypatch, rag.RagStore(help_channels=[fixture, channel]))
+
+    grid = next(row.proto.body for row in app.get("html") if 'class="help-channel-grid"' in row.proto.body)
+    assert grid.count('<article class="help-channel-card">') == 2
+    assert f"<h4>{escape(channel.name)}</h4>" in grid
+    assert f"<p>{escape(channel.what_for)}</p>" in grid
+    assert f"<p>{escape(channel.contact)}</p>" in grid
+    assert f'<a href="{escape(channel.url)}" target="_blank" rel="noopener noreferrer">바로가기</a>' in grid
+    assert grid.count("<small>확인 날짜 2026-01-01</small>") == 2
+    assert app.button(key="another-check").label == "다른 서류 점검하기"
+
+
 def test_dev_tools_flag_reads_only_explicit_true(tmp_path, monkeypatch):
     monkeypatch.delenv("SHOW_DEV_TOOLS", raising=False)
     dotenv = tmp_path / ".env"

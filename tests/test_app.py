@@ -7,6 +7,7 @@ from app.steps.upload import ReviewDraft
 from llm import chat
 from llm.extract import blank_result
 from llm.samples import load_sample
+from rag import store as rag_store
 
 APP = Path(__file__).resolve().parents[1] / "app" / "main.py"
 DISCLAIMER = "법률 자문이 아니며 최종 판단은 관계 기관에서 이루어집니다."
@@ -24,7 +25,9 @@ def check_footer(app):
     ("normal_case", "1,094,940원", False),
     ("review_case", "1,076,170원", True),
 ])
-def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, needs_review):
+def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, needs_review, monkeypatch):
+    store = rag_store.default_store()
+    monkeypatch.setattr(rag_store, "default_store", lambda: rag_store.RagStore(laws=store.laws, terms=store.terms))
     app = start()
     assert not app.exception
     assert not app.get("file_uploader")

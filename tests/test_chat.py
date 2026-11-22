@@ -452,5 +452,31 @@ def test_app_web_reference_and_consultation_appear_separately(monkeypatch):
     assert any("참고 · 추가 확인 필요" in row.value for row in app.markdown)
     assert any("https://www.moel.go.kr/help" in row.proto.body for row in app.get("html"))
     assert any("공식 상담 경로" in row.value for row in app.caption)
-    assert any("테스트용 상담 경로" in row.proto.body for row in app.get("html"))
+    links = next(row.proto.body for row in app.get("html") if 'class="chat-help-links"' in row.proto.body)
+    assert "테스트용 상담 경로 · 테스트용 연락 수단" in links
+    assert "https://example.com/help" in links
+    assert "테스트용 확인 안내" not in links
     assert not any("AI가 작성한 답변이에요" == row.value for row in app.caption)
+
+
+def test_app_chat_shows_one_compact_help_list_for_two_official_checks(monkeypatch):
+    from rag import store as rag_store
+
+    channel = HelpChannel(
+        name="테스트 <상담>", contact="전화 & 채팅", url="https://example.com/help?a=1&b=2",
+        what_for="테스트용 도움말", checked_date="2026-01-01",
+    )
+    monkeypatch.setattr(rag_store, "default_store", lambda: RagStore(help_channels=[channel]))
+    app = ready_sample()
+    for question in ("퇴직금은 어떻게 계산해요?", "해고당했어요"):
+        app.text_input(key="receipt-chat-input").set_value(question)
+        next(button for button in app.form_submit_button if button.label == "질문 보내기").click().run()
+        assert not app.exception
+
+    replies = app.session_state[chat.SESSION_KEY].history.values()
+    assert len(replies) == 2 and all(reply.needs_official_check for reply in replies)
+    links = [row.proto.body for row in app.get("html") if 'class="chat-help-links"' in row.proto.body]
+    assert len(links) == 1
+    assert '<li>' in links[0] and f'href="{escape(channel.url)}"' in links[0]
+    assert escape(f"{channel.name} · {channel.contact}") in links[0]
+    assert sum(row.value == "공식 상담 경로" for row in app.caption) == 1

@@ -10,7 +10,7 @@ from rag.store import RagStore
 
 CHAT_EDIT_REQUEST = "receipt_chat_edit_requested"
 
-def _chat_reply(reply: chat.ChatReply, store: RagStore):
+def _chat_reply(reply: chat.ChatReply, store: RagStore, *, show_official_help: bool):
     st.text(reply.answer)
     if reply.validation == "passed":
         st.caption("AI가 작성한 답변이에요")
@@ -32,7 +32,7 @@ def _chat_reply(reply: chat.ChatReply, store: RagStore):
                     f'<p class="rag-source"><a href="{escape(source.url)}" target="_blank" '
                     f'rel="noopener noreferrer">{escape(source.title)}</a></p>'
                 )
-    if reply.needs_official_check:
+    if show_official_help:
         if store.help_channels:
             st.caption("공식 상담 경로")
             help_channel_links(store)
@@ -71,12 +71,15 @@ def _chat(context: explain.ExplanationContext, settings: ApiSettings, store: Rag
             if reply.validation == "blocked":
                 st.info(reply.answer)
         quota.caption(f"질문 {max(0, chat.QUESTION_LIMIT - session.questions_used)}회 남음")
+        help_question = next(
+            (asked for asked, reply in reversed(session.history.items()) if reply.needs_official_check), None,
+        )
         with history:
             for asked, reply in session.history.items():
                 with st.chat_message("user"):
                     st.text(asked)
                 with st.chat_message("assistant"):
-                    _chat_reply(reply, store)
+                    _chat_reply(reply, store, show_official_help=asked == help_question)
         if session.history and next(reversed(session.history.values())).answer_type == "hypothetical":
             if st.button("내용 확인으로 돌아가기", key="chat-edit-confirmed", width="stretch"):
                 st.session_state[CHAT_EDIT_REQUEST] = True

@@ -153,10 +153,24 @@ def chat_evidence(records: tuple[LawRecord | TermRecord, ...]):
     st.html(f'<div class="review-chips evidence-chips">{"".join(chips)}</div>')
 
 
+def _help_link(url: str, label: str) -> str:
+    return f'<a href="{escape(url)}" target="_blank" rel="noopener noreferrer">{escape(label)}</a>'
+
+
+def help_channel_cards(store: RagStore):
+    cards = "".join(
+        f'<article class="help-channel-card"><h4>{escape(channel.name)}</h4>'
+        f'<p>{escape(channel.what_for)}</p><p>{escape(channel.contact)}</p>'
+        f'<footer>{_help_link(channel.url, "바로가기")}'
+        f'<small>확인 날짜 {channel.checked_date.isoformat()}</small></footer></article>'
+        for channel in store.help_channels
+    )
+    st.html(f'<div class="help-channel-grid">{cards}</div>')
+
+
 def help_channel_links(store: RagStore):
-    for channel in store.help_channels:
-        st.html(
-            f'<article class="rag-help"><h4>{escape(channel.name)}</h4>'
-            f'<p>{escape(channel.what_for)}</p><p>{escape(channel.contact)}</p>'
-            f'{_source(channel.url, channel.checked_date)}</article>'
-        )
+    links = "".join(
+        f'<li>{_help_link(channel.url, f"{channel.name} · {channel.contact}")}</li>'
+        for channel in store.help_channels
+    )
+    st.html(f'<ul class="chat-help-links">{links}</ul>')

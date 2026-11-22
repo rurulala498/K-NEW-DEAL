@@ -1,6 +1,6 @@
 import streamlit as st
 
-from app.components.evidence import evidence_chips, explanation_terms, help_channel_links
+from app.components.evidence import evidence_chips, explanation_terms, help_channel_cards
 from app.components.help_panel import help_panel
 from app.components.shell import begin_check, reset
 from app.components.report import (
@@ -113,14 +113,13 @@ def _another_check():
 
 def _more_help(store: RagStore):
     with st.container(border=True, key="report-help"):
-        title, links, action = st.columns([2, 5, 2], gap="small", vertical_alignment="center")
+        title, action = st.columns([3, 2], gap="small", vertical_alignment="center")
         title.subheader("더 확인하고 싶다면")
-        with links:
-            if store.help_channels:
-                help_channel_links(store)
-            else:
-                st.caption(chat.OFFICIAL_HELP)
         action.button("다른 서류 점검하기", key="another-check", on_click=_another_check)
+        if store.help_channels:
+            help_channel_cards(store)
+        else:
+            st.caption(chat.OFFICIAL_HELP)
 
 
 def _paid_period(extraction: ExtractionResult) -> str:
