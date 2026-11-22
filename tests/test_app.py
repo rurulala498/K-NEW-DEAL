@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -62,7 +63,8 @@ def test_sample_requires_confirmation_and_shows_results(sample, monthly_total, n
         title = next(row.proto.body for row in app.get("html") if 'class="report-summary-title"' in row.proto.body)
         assert "최저임금 기준으로 계산하면" in title and "headline-amount" in title and "207,170원" in title
         reason = next(row.proto.body for row in app.get("html") if 'class="report-summary-reason"' in row.proto.body)
-        assert all(value in reason for value in ("주휴수당 미지급", "173,800원", "최저임금 차이", "33,370원"))
+        assert re.search(r"주휴수당[^.]*173,800원", reason)
+        assert re.search(r"최저임금[^.]*33,370원", reason)
         assert "pay-row-diff" in receipt and '<summary>계산식</summary>' in receipt
         assert any(row.value == "계약대로 1,042,800원 · 최저임금 기준 1,076,170원" for row in app.caption)
         assert all(amount in receipt for amount in ("1,042,800원", "1,076,170원", "869,000원", "207,170원"))

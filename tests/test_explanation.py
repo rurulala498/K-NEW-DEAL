@@ -9,7 +9,7 @@ from streamlit.testing.v1 import AppTest
 from engine import run_engine
 from llm import explain
 from llm.client import ApiSettings, ExtractionRequestError, ModelReply, TokenUsage
-from llm.guards import NumericFacts, is_safe, private_text
+from llm.guards import NumericFacts, is_safe, numeric_tokens, private_text
 from rag.store import RagStore, default_store
 from schemas.explanation import EmployerMessages, Explanation
 from schemas.extraction import SpecialTerm
@@ -252,6 +252,7 @@ def test_sample_flow_and_message_rewrites_do_not_call_the_api(monkeypatch):
     app.button(key="consent").click().run()
     app.button(key="sample-review_case").click().run()
     next(button for button in app.form_submit_button if button.label == "결과 보기").click().run()
+    assert any(row.value.startswith("AI가 작성한 설명이에요") for row in app.caption)
     tone = next(field for field in app.segmented_control if field.label == "말투")
     tone.set_value("간단하게")
     app.button(key="rewrite-employer-messages").click().run()
@@ -286,16 +287,36 @@ def test_basic_term_context_uses_engine_amounts_and_omits_missing_situations():
     assert all("관련 항목을 확인할 수 있어요." not in term.user_context for term in incomplete.basic.terms)
 
 
-def test_seeded_samples_are_available_without_api_and_live_demo_has_four_confirmed_cases():
+def test_live_demo_has_four_confirmed_cases():
     for case in CASES:
-        report = context(case)
-        assert report.basic.summary.headline
-        if case in explain.SAMPLE_NAMES:
-            record = json.loads((explain.SAMPLE_REPORTS / f"{case}_explanation.json").read_text(encoding="utf-8"))
-            assert len(record["cache_key"]) == 64
-            assert Explanation.model_validate(record["explanation"]).summary.headline
-            saved = explain.saved_sample(case, report)
-            assert saved.content == report.basic and not saved.ai_fields
+        assert context(case).basic.summary.headline
+
+
+@pytest.mark.parametrize("case", explain.SAMPLE_NAMES)
+def test_saved_sample_matches_current_context_and_engine_amounts(case):
+    report = context(case)
+    path = explain.SAMPLE_REPORTS / f"{case}_explanation.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["cache_key"] == report.cache_key
+
+    saved = explain.saved_sample(case, report)
+    assert saved.ai_fields
+    assert saved.content == Explanation.model_validate(record["explanation"])
+
+    text = saved.content.model_dump_json()
+    assert "위반" not in text and "불법" not in text
+    amounts = {value for unit, value in numeric_tokens(text) if unit == "원"}
+    allowed = {item.amount for scenario in report.result.expected_pay for item in scenario.items}
+    allowed.update(
+        amount for row in report.result.comparison for field in (
+            "expected", "actual", "difference", "contract_expected", "contract_difference", "minimum_wage_difference",
+        )
+        if (amount := getattr(row, field)) is not None
+    )
+    allowed.update(value for row in report.result.checks for unit, value in numeric_tokens(row.description) if unit == "원")
+    allowed.add(Decimal(report.payload["confirmed"]["hourly_wage"]))
+    allowed.update(Decimal(rule["minimum_hourly_wage"]) for rule in report.payload["standards"])
+    assert amounts and amounts.issubset(allowed), amounts - allowed
 
 
 def test_config_and_confirmed_clause_amounts_are_included_and_allowed():
