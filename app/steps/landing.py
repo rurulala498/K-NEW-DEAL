@@ -154,9 +154,15 @@ def _feature(label: str, title: str, body: str, preview: str, *, reverse: bool =
     )
 
 
-def landing_step(store: RagStore):
+@st.cache_resource(show_spinner=False, hash_funcs={RagStore: lambda store: (store.laws, store.terms)})
+def _landing_example(store: RagStore) -> tuple[ExtractionResult, explain.ExplanationContext]:
     extraction = ExtractionResult.model_validate(load_sample("review_case"))
     context = explain.build_context(run_engine(extraction), extraction, store)
+    return extraction, context
+
+
+def landing_step(store: RagStore):
+    extraction, context = _landing_example(store)
     with st.container(key="landing-content"):
         st.html("""
           <section class="landing-hero" id="service-intro">

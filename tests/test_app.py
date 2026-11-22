@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from app.steps import landing
 from app.steps.upload import ReviewDraft
 from llm import chat
 from llm.extract import blank_result
@@ -154,11 +155,23 @@ def test_review_displays_gross_total_hint_and_submits_legacy_times():
     assert app.metric[0].value == "1,076,170원"
 
 
-def test_landing_shows_calculated_example_and_routes_to_consent():
-    app = start()
-    landing = " ".join(row.proto.body for row in app.get("html"))
-    assert "일한 만큼," in landing and "가상 서류로 만든 예시 화면이에요." in landing
-    assert "1,076,170원" in landing and "207,170원" in landing
+def test_landing_shows_calculated_example_and_routes_to_consent(monkeypatch):
+    with monkeypatch.context() as patch:
+        landing._landing_example.clear()
+        original_run = landing.run_engine
+        runs = []
+
+        def track_example(extraction):
+            runs.append(extraction)
+            return original_run(extraction)
+
+        patch.setattr(landing, "run_engine", track_example)
+        app = start()
+        app.run()
+        assert len(runs) == 1
+    markup = " ".join(row.proto.body for row in app.get("html"))
+    assert "일한 만큼," in markup and "가상 서류로 만든 예시 화면이에요." in markup
+    assert "1,076,170원" in markup and "207,170원" in markup
     assert not app.get("file_uploader")
 
     app.button(key="hero-examples").click().run()
@@ -185,5 +198,7 @@ def test_review_preview_follows_core_values_without_confirming():
     assert "result" not in app.session_state
     app.text_input(key="review-contract-hourly_wage").set_value("값 없음").run()
     assert any("값을 확인하면 계산돼요" in row.proto.body for row in app.get("html"))
-    next(button for button in app.form_submit_button if button.label == "이전으로").click().run()
+    assert any("AI가 읽은 내용은 사라져요" in row.value for row in app.caption)
+    next(button for button in app.form_submit_button if button.label == "서류 다시 올리기").click().run()
     assert app.file_uploader and "result" not in app.session_state
+    assert "draft" not in app.session_state

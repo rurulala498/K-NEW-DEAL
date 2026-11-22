@@ -142,7 +142,9 @@ def _invalid_input(error: ValidationError):
     )
 
 
-def _preview_markup(sample: dict, schedule: Contract, core: dict, *, valid_schedule: bool) -> str:
+def _preview_markup(
+    sample: dict, schedule: Contract, core: dict, extra_answers: dict, *, valid_schedule: bool,
+) -> str:
     amounts = []
     if valid_schedule:
         try:
@@ -153,6 +155,7 @@ def _preview_markup(sample: dict, schedule: Contract, core: dict, *, valid_sched
                     "hourly_wage": core["hourly_wage"],
                     "weekly_hours": core["weekly_hours"],
                 },
+                "extra_answers": extra_answers,
                 "user_confirmed": True,
             })
             groups = pay_by_workplace(run_engine(temporary).expected_pay)
@@ -166,7 +169,7 @@ def _preview_markup(sample: dict, schedule: Contract, core: dict, *, valid_sched
     content = "".join(amounts) or "<span>값을 확인하면 계산돼요</span>"
     return (
         f'<div class="review-live-row" aria-live="polite"><b>지금 값으로 계산하면</b>{content}'
-        '<small>시급·주 소정근로시간·근무표를 고치면 바로 다시 계산돼요.</small></div>'
+        '<small>시급·주 소정근로시간·근무표·사업장 규모를 바꾸면 바로 다시 계산돼요.</small></div>'
     )
 
 
@@ -190,15 +193,16 @@ def review_step(sample_name: str | None, sample: dict, *, texts: DocumentTexts |
             )
             workplace_size = _workplace_size(sample["extra_answers"])
 
-    preview.html(_preview_markup(sample, schedule, core, valid_schedule=valid_schedule))
+    extra_answers = {"workplace_size": workplace_size, "pay_period_rule": pay_period}
+    preview.html(_preview_markup(sample, schedule, core, extra_answers, valid_schedule=valid_schedule))
     with st.form("review-form", border=False):
         if provided.payslip and sample["payslip"]["total_paid"]["value"] is None:
             st.warning("명세서의 지급 총액(세전)을 확인해 주세요")
         remaining, payslip = _additional_fields(sample["contract"], sample["payslip"] if provided.payslip else None)
         with st.container(border=True, key="review-actions"):
             back, note, next_step = st.columns([1, 4, 1], gap="small", vertical_alignment="center")
-            back_clicked = back.form_submit_button("이전으로", width="stretch")
-            note.caption("모든 값을 확인했다면 결과를 볼 수 있어요")
+            back_clicked = back.form_submit_button("서류 다시 올리기", width="stretch")
+            note.caption("모든 값을 확인했다면 결과를 볼 수 있어요. 다시 올리면 AI가 읽은 내용은 사라져요.")
             submitted = next_step.form_submit_button(
                 "결과 보기", type="primary", width="stretch", disabled=not valid_schedule,
             )
@@ -211,7 +215,7 @@ def review_step(sample_name: str | None, sample: dict, *, texts: DocumentTexts |
             return ExtractionResult.model_validate({
                 "contract": {**schedule.model_dump(mode="json"), **core, **remaining},
                 "payslip": payslip if provided.payslip else sample["payslip"],
-                "extra_answers": {"workplace_size": workplace_size, "pay_period_rule": pay_period},
+                "extra_answers": extra_answers,
                 "user_confirmed": True,
                 "documents_provided": provided,
             })

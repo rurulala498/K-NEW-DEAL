@@ -75,9 +75,8 @@ def footer(step: int):
             )
             _footer_row()
     else:
-        with st.bottom:
-            with st.container(key="legal-footer"):
-                _footer_row()
+        with st.container(key="legal-footer"):
+            _footer_row()
 
 
 def reset():

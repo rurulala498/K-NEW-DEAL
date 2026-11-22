@@ -8,7 +8,7 @@ from streamlit.testing.v1 import AppTest
 
 from app.components.evidence import evidence_markup
 from app.components.schedule import EDITOR_KEY
-from app.steps import upload
+from app.steps import review, upload
 from engine import run_engine
 from llm import explain, extract
 from llm.client import ApiSettings, ModelReply
@@ -201,3 +201,32 @@ def test_required_terms_and_total_chips_prioritize_direct_topics():
     assert re.findall(pattern, evidence_markup(
         store, pay_basis_keys("합계"), "합계", explained,
     )) == ["임금 지급 원칙", "임금명세서"]
+
+
+def test_review_preview_uses_selected_workplace_size_and_pay_period(monkeypatch):
+    extraction = extracted_schedule()
+    previews = []
+
+    def capture_preview(temporary):
+        previews.append(temporary.extra_answers)
+        return run_engine(temporary)
+
+    monkeypatch.setattr(review, "run_engine", capture_preview)
+    app = AppTest.from_file(str(ROOT / "app" / "main.py"), default_timeout=20)
+    app.session_state["step"] = 2
+    app.session_state["draft"] = upload.ReviewDraft(
+        extraction.model_dump(mode="json"), texts=read_fixture_pair("schedule"),
+    )
+    app.run()
+    assert not app.exception
+    preview = next(row.proto.body for row in app.get("html") if 'class="review-live-row"' in row.proto.body)
+    assert "1,249,188원" in preview and "1,199,220원" not in preview
+
+    app.text_input(key="review-pay-period").set_value("전월 1일~말일")
+    app.selectbox(key="review-workplace-size").select("under_5").run()
+    assert not app.exception
+    preview = next(row.proto.body for row in app.get("html") if 'class="review-live-row"' in row.proto.body)
+    assert "1,199,220원" in preview and "1,249,188원" not in preview
+    assert previews[-1].workplace_size.value == "under_5"
+    assert previews[-1].pay_period_rule.value == "전월 1일~말일"
+    assert "confirmed" not in app.session_state and "result" not in app.session_state
