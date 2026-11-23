@@ -4,6 +4,8 @@
 
 시급제 청년 근로자가 근로계약서의 조건을 확인하고, 받을 것으로 예상되는 급여와 실제 지급액을 비교하는 해커톤 프로젝트입니다.
 
+2026 대한민국 청년 CAREER FAIR AI 해커톤 출품작입니다.
+
 ## 웹에서 체험하기
 
 [받았수당 앱 바로 열기](https://k-new-deal.streamlit.app/)
@@ -39,7 +41,7 @@ python -m pip install -r requirements.txt
 python -m streamlit run app/main.py --server.address 127.0.0.1
 ```
 
-AI로 서류를 읽거나 결과 설명을 생성하려면 [환경 변수 예시](.env.example)를 참고해 로컬 `.env`에 `OPENAI_API_KEY`와 Structured Outputs를 지원하는 `OPENAI_MODEL`을 설정합니다. `SHOW_DEV_TOOLS=true`를 설정하면 가상 샘플을 AI로 직접 읽는 개발용 도구가 표시됩니다.
+AI로 서류를 읽거나 결과 설명을 생성하려면 [환경 변수 예시](.env.example)를 참고해 로컬 `.env`에 `OPENAI_API_KEY`와 Structured Outputs를 지원하는 `OPENAI_MODEL`을 설정합니다. `ENABLE_WEB_SEARCH=true`를 설정하면 도움 챗봇이 공식 사이트 검색을 함께 사용합니다. `SHOW_DEV_TOOLS=true`를 설정하면 가상 샘플을 AI로 직접 읽는 개발용 도구가 표시됩니다.
 
 Streamlit Community Cloud에서는 앱 설정의 **Secrets**에 같은 환경 변수를 설정합니다. 배포 대상은 이 저장소의 `master` 브랜치와 실행 파일 `app/main.py`입니다. [Streamlit Secrets 설정 안내](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management)
 
@@ -47,6 +49,8 @@ Streamlit Community Cloud에서는 앱 설정의 **Secrets**에 같은 환경 �
 
 - 규칙 엔진이 계약과 급여를 점검하고 숫자를 계산합니다. 기본급과 주휴수당은 확인한 주 소정근로시간을 사용합니다. 근무표가 있으면 요일별 휴게와 연장·야간 시간, 야간과 겹치는 휴게 구간을 반영합니다. 최저임금보다 낮은 시급은 계약 시급과 최저임금 기준을 함께 계산합니다.
 - AI는 서류에서 항목을 추출하고 엔진 결과를 설명하며 대응 문구를 작성합니다. 결과 화면에 기본 설명을 먼저 표시하고, AI 설명이 준비되면 출처를 구분해 표시합니다. 조문과 용어 사전은 팀이 정리한 데이터를 사용합니다. [RAG 데이터 작성 안내](docs/rag_data_guide.md)
+- 도움 챗봇은 확인한 값, 엔진 결과, 팀이 정리한 조문·용어를 근거로 답합니다. 자료에 없는 질문은 웹 검색을 켠 경우 국가법령정보센터·고용노동부·찾기쉬운 생활법령정보·최저임금위원회 사이트만 검색해 "참고 · 추가 확인 필요"로 표시하며, 검색 결과는 금액 계산에 쓰지 않습니다. 질문은 세션당 20회, 웹 검색은 3회로 제한합니다.
+- 추가 확인이 필요하면 공식 상담 경로 6곳(고용노동부 고객상담센터 1350, 청소년근로권익센터 1644-3119, AI 노동법 상담, 임금체불 진정, 대한법률구조공단 132, 근로복지공단 대지급금 안내)을 결과 화면과 챗봇에서 안내합니다.
 - 서류는 세션 메모리에서 처리합니다. 서류를 읽을 때는 추출할 텍스트가 OpenAI API로 전송됩니다. 결과 설명에는 필요한 엔진 값과 확인한 일부 항목을 전달합니다. 주민등록번호·계좌번호 등 개인을 식별할 수 있는 정보는 업로드 전에 가려 주세요.
 
 받았수당은 법률 자문 서비스가 아닙니다. 최종 판단은 관계 기관에서 이루어집니다.
@@ -59,9 +63,40 @@ Streamlit Community Cloud에서는 앱 설정의 **Secrets**에 같은 환경 �
 <a name="sources"></a>
 ## 출처·라이선스
 
-법령과 용어의 출처 및 확인일은 결과의 각 근거에서 확인할 수 있습니다. [국가법령정보센터](https://www.law.go.kr/) · [RAG 데이터 작성 안내](docs/rag_data_guide.md)
+법령과 용어의 출처 및 확인일은 결과의 각 근거에서 확인할 수 있습니다. [RAG 데이터 작성 안내](docs/rag_data_guide.md)
 
-화면의 Pretendard 글꼴은 SIL Open Font License 1.1을 따릅니다. [Pretendard 라이선스](https://github.com/orioncactus/pretendard/blob/v1.3.9/LICENSE)
+### 데이터
+
+| 자료 | 출처 | 사용 위치 |
+| --- | --- | --- |
+| 근로기준법·최저임금법 조문 | [국가법령정보센터](https://www.law.go.kr/) | 점검 근거, 조문 원문 표시 |
+| 2026년 적용 최저임금 고시 | 고용노동부 고시, [최저임금위원회](https://www.minimumwage.go.kr/) | 최저임금 기준값 |
+| 노동 용어 28개 | 고용노동부·찾기쉬운 생활법령정보·국가법령정보센터 자료를 팀이 정리 | 용어 풀이, 챗봇 |
+| 공공 상담 경로 6곳 | 각 기관 공식 안내 (`data/help_channels.json`에 링크·확인일 기록) | 결과 화면, 챗봇 |
+| 가상 근로계약서·급여명세서 | 팀 직접 제작 (실제 개인정보 없음) | 예시 체험, 테스트, 추출 평가 |
+
+### 오픈소스
+
+| 이름 | 라이선스 | 용도 |
+| --- | --- | --- |
+| [Streamlit](https://github.com/streamlit/streamlit) | Apache-2.0 | 웹 화면 |
+| [Pydantic](https://github.com/pydantic/pydantic) | MIT | 데이터 형식 검증 |
+| [OpenAI Python SDK](https://github.com/openai/openai-python) | Apache-2.0 | API 연동 |
+| [pypdf](https://github.com/py-pdf/pypdf) | BSD-3-Clause | PDF 텍스트 추출 |
+| [python-docx](https://github.com/python-openxml/python-docx) | MIT | DOCX 텍스트 추출 |
+| [python-dotenv](https://github.com/theskumar/python-dotenv) | BSD-3-Clause | 환경 변수 관리 |
+| [pytest](https://github.com/pytest-dev/pytest) | MIT | 자동 테스트 |
+| [Pretendard](https://github.com/orioncactus/pretendard) | [SIL OFL 1.1](https://github.com/orioncactus/pretendard/blob/v1.3.9/LICENSE) | 화면 글꼴 |
+
+템플릿·보일러플레이트는 사용하지 않았습니다. 로고와 화면 디자인은 팀이 제작했습니다.
+
+### AI 모델·개발 도구
+
+| 이름 | 용도 |
+| --- | --- |
+| OpenAI API `gpt-6.1-terra` | 서비스 내 서류 추출, 결과 설명, 대응 문구, 챗봇 답변 ([OpenAI 이용약관](https://openai.com/policies/)) |
+| Codex (GPT-6.2 sol) | 기능 구현, 테스트 코드 작성 |
+| Claude | 개발 요구사항 정리, 코드 검토, 화면·로고 시안, 문서 초안 |
 
 ## 테스트와 평가
 
